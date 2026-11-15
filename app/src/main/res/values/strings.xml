@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Melvore</string>
+    <string name="tagline">Curated Outerwear &amp; Comfort Wear</string>
+    <string name="cd_back">Navigate back</string>
+    <string name="cd_search">Search Melvore</string>
+    <string name="cd_track_order">Track order</string>
+    <string name="cd_cart">Open shopping cart</string>
+    <string name="cd_wishlist">Wishlist</string>
+    <string name="cd_profile">Account menu</string>
+    <string name="cd_close">Close</string>
+</resources>
