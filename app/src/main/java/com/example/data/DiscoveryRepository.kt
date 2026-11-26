@@ -752,8 +752,8 @@ class DiscoveryRepository(
         /**
          * Merges DB-backed FashionWorldTheme items with any worlds declared in the active
          * DesignManifest (e.g., all 12 v1.2.0 server worlds including Pixel Arcade, Grunge,
-         * Old Money, Quiet Luxury, Minimal, Casual, Party Wear). DB rows always take priority
-         * and preserve their IDs and display order; missing cover images are backfilled from kit.heroImage.
+         * Old Money, Quiet Luxury, Minimal, Casual, Party Wear). Only DB rows are returned (no worlds are
+         * fabricated from the manifest); missing cover images are backfilled from kit.heroImage.
          */
         fun mergeManifestWorlds(
             dbWorlds: List<FashionWorldTheme>,
@@ -778,54 +778,8 @@ class DiscoveryRepository(
                 }
             }
 
-            val existingSlugs = enrichedDb.map { it.slug.trim().lowercase() }.toSet()
-            var nextOrder = (enrichedDb.maxOfOrNull { it.displayOrder } ?: enrichedDb.size) + 1
-            val synthesized = manifestWorlds.entries.mapNotNull { (rawSlug, spec) ->
-                val slug = rawSlug.trim().lowercase()
-                if (slug.isBlank() || slug in existingSlugs) return@mapNotNull null
-                val kit = spec.kit
-                val pal = kit?.palette
-                val typo = kit?.typography
-                val displayName = slug.split("-", "_")
-                    .filter { it.isNotBlank() }
-                    .joinToString(" ") { part ->
-                        if (part.equals("y2k", ignoreCase = true)) "Y2K"
-                        else part.replaceFirstChar { it.uppercase() }
-                    }
-                val mode = pal?.mode?.lowercase()?.takeIf { it == "light" || it == "dark" } ?: "dark"
-                val hero = kit?.heroImage?.takeIf { it.isNotBlank() }
-                FashionWorldTheme(
-                    styleWorldId = 0,
-                    slug = slug,
-                    name = displayName,
-                    tagline = spec.template.replace('_', ' ').replaceFirstChar { it.uppercase() },
-                    themeKey = spec.template,
-                    mode = mode,
-                    animationKey = kit?.motionPreset?.ifBlank { "smooth_reveal" } ?: "smooth_reveal",
-                    fontStyle = typo?.displayFont?.ifBlank { spec.fontStyle } ?: spec.fontStyle,
-                    buttonStyle = kit?.buttonSkin?.ifBlank { spec.buttonStyle } ?: spec.buttonStyle,
-                    cardRadiusDp = spec.cardRadiusDp,
-                    primaryColor = pal?.textPrimary?.ifBlank { if (mode == "light") "#09090B" else "#FFFFFF" }
-                        ?: if (mode == "light") "#09090B" else "#FFFFFF",
-                    accentColor = pal?.accent?.ifBlank { "#D4AF37" } ?: "#D4AF37",
-                    secondaryAccent = pal?.secondaryAccent?.ifBlank { "#94A3B8" } ?: "#94A3B8",
-                    backgroundColor = pal?.background?.ifBlank { if (mode == "light") "#FAF8F5" else "#0E0D1B" }
-                        ?: if (mode == "light") "#FAF8F5" else "#0E0D1B",
-                    surfaceColor = pal?.surface?.ifBlank { if (mode == "light") "#FFFFFF" else "#181632" }
-                        ?: if (mode == "light") "#FFFFFF" else "#181632",
-                    surfaceElevated = pal?.surface?.ifBlank { if (mode == "light") "#F4F4F5" else "#232042" }
-                        ?: if (mode == "light") "#F4F4F5" else "#232042",
-                    textPrimary = pal?.textPrimary?.ifBlank { if (mode == "light") "#09090B" else "#FFFFFF" }
-                        ?: if (mode == "light") "#09090B" else "#FFFFFF",
-                    textSecondary = pal?.textSecondary?.ifBlank { "#94A3B8" } ?: "#94A3B8",
-                    borderColor = pal?.border?.ifBlank { "#334155" } ?: "#334155",
-                    ambientPreset = slug,
-                    coverImageUrl = hero,
-                    mobileImageUrl = hero,
-                    displayOrder = nextOrder++
-                )
-            }
-            return enrichedDb + synthesized
+            // Never invent worlds that the database does not contain: the DB owns the world list.
+            return enrichedDb
         }
     }
 

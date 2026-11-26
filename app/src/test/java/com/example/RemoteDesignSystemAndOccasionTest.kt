@@ -471,25 +471,21 @@ class RemoteDesignSystemAndOccasionTest {
         assertEquals("eid_lantern", liveManifest.occasionOverrides.occasionKit("eid-ul-fitr")?.motif)
         assertEquals("wedding_paisley", liveManifest.occasionOverrides.occasionKit("wedding-couture")?.motif)
 
-        // 3. Merging a 2-world DB list with live manifest yields all 12 worlds while preserving DB IDs
+        // 3. Merging never invents worlds: only DB rows come back, IDs preserved, art backfilled from the kit
         val partialDbWorlds = listOf(
             FashionWorldTheme(styleWorldId = 101, slug = "y2k", name = "Y2K Chrome DB", displayOrder = 1),
             FashionWorldTheme(styleWorldId = 102, slug = "goth", name = "Goth DB", displayOrder = 2)
         )
         val merged = com.example.data.DiscoveryRepository.mergeManifestWorlds(partialDbWorlds, liveManifest)
-        assertEquals(12, merged.size)
+        assertEquals(2, merged.size)
         val y2kMerged = merged.first { it.slug == "y2k" }
         assertEquals(101, y2kMerged.styleWorldId)
         assertEquals("Y2K Chrome DB", y2kMerged.name)
         val gothMerged = merged.first { it.slug == "goth" }
         assertEquals(102, gothMerged.styleWorldId)
         assertEquals("/design-system/assets/images/goth-nocturne-hero.svg", gothMerged.coverImageUrl)
-
-        val pixelMerged = merged.firstOrNull { it.slug == "pixel" }
-        assertNotNull("Pixel world must be synthesized from live manifest", pixelMerged)
-        assertEquals("/design-system/assets/images/pixel-arcade-hero.svg", pixelMerged!!.coverImageUrl)
-        assertEquals("#FFD23F", pixelMerged.accentColor)
-        assertEquals("pixel_block", pixelMerged.buttonStyle)
+        assertNull("Worlds absent from the DB must not be fabricated", merged.firstOrNull { it.slug == "pixel" })
+        assertTrue(merged.none { it.styleWorldId == 0 })
 
         // 4. Every one of the 12 world kits resolves all 9 SVG assets & 5x2 icon SVGs against production server
         val prodBase = "https://app.melvore.co.in"

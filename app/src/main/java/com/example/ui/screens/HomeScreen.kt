@@ -497,9 +497,8 @@ fun HomeScreen(
                     } else {
                         QuickCommerceFestivalHeroBanner(
                             occasion = activeOccasion,
-                            fallbackTitle = leadHero?.title?.ifBlank { "Fresh Drops in Your World" } ?: "Fresh Drops in Your World",
-                            fallbackSubtitle = leadHero?.subtitle?.ifBlank { "Curated silhouettes & quick dispatch from Melvore ateliers" }
-                                ?: "Curated silhouettes & quick dispatch from Melvore ateliers",
+                            fallbackTitle = leadHero?.title.orEmpty(),
+                            fallbackSubtitle = leadHero?.subtitle.orEmpty(),
                             fallbackCta = leadHero?.ctaText?.ifBlank { "Shop Now" } ?: "Shop Now",
                             fallbackImageUrl = leadHero?.imageUrl,
                             reducedMotion = reducedMotion,
@@ -738,7 +737,7 @@ fun HomeScreen(
                         item(key = "home_qc_frequently_bought") {
                             QuickCommerceProductRail(
                                 title = "Frequently bought",
-                                subtitle = "Most ordered Melvore essentials",
+                                subtitle = "",
                                 products = bestsellers,
                                 currency = uiState.currency,
                                 cartQuantityForProduct = { uiState.cartQuantityForProduct(it) },
@@ -759,7 +758,7 @@ fun HomeScreen(
                                 } else {
                                     "Trending in your world"
                                 },
-                                subtitle = "Picked from live drops & community saves",
+                                subtitle = "",
                                 products = trendingProducts,
                                 currency = uiState.currency,
                                 cartQuantityForProduct = { uiState.cartQuantityForProduct(it) },
