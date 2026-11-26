@@ -75,63 +75,89 @@ fun ProfileScreen(
     onUpdatePreferences: ((LocalPreferences) -> LocalPreferences) -> Unit,
     onRequestPasswordReset: (email: String, onSent: () -> Unit) -> Unit,
     onResetPassword: (email: String, otp: String, newPassword: String, onSuccess: () -> Unit) -> Unit,
-    onSaveApiBaseUrl: (String) -> Unit,
+    onOpenHelpCenter: () -> Unit,
     onLogout: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    discoveryState: com.example.ui.viewmodel.DiscoveryUiState = com.example.ui.viewmodel.DiscoveryUiState(),
+    onOpenDesignAudit: () -> Unit = {},
+    onOpenConnectionDiagnostics: () -> Unit = {},
+    onRefreshDesignManifest: () -> Unit = {}
 ) {
     val ext = LocalMelvoreColors.current
     val user = uiState.user
 
     if (user == null) {
-        Column(
+        LazyColumn(
             modifier = modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .fillMaxSize(),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(72.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Person, contentDescription = null, tint = ext.muted, modifier = Modifier.size(34.dp))
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(72.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.Person, contentDescription = null, tint = ext.muted, modifier = Modifier.size(34.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text("Sign in to Melvore", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Access your saved addresses, wishlist, order tracking, and support tickets.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ext.muted
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = { onNavigateAuth("login") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("profile_signin_cta")
+                    ) {
+                        Icon(Icons.AutoMirrored.Outlined.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Login")
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { onNavigateAuth("register") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("profile_register_cta")
+                    ) {
+                        Icon(Icons.Outlined.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Create Account")
+                    }
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Text("Sign in to Melvore", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Access your saved addresses, wishlist, order tracking, and support tickets.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = ext.muted
-            )
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = { onNavigateAuth("login") },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("profile_signin_cta")
-            ) {
-                Icon(Icons.AutoMirrored.Outlined.Login, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Login")
+            item {
+                ProfileAppearanceCard(
+                    themeMode = uiState.themeMode,
+                    onSetTheme = onSetTheme
+                )
             }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { onNavigateAuth("register") },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("profile_register_cta")
-            ) {
-                Icon(Icons.Outlined.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Create Account")
+            item {
+                ProfileAboutDesignSystemCard(
+                    discoveryState = discoveryState,
+                    onRefreshDesignManifest = onRefreshDesignManifest,
+                    onOpenDesignAudit = onOpenDesignAudit,
+                    onOpenConnectionDiagnostics = onOpenConnectionDiagnostics
+                )
             }
         }
         return
@@ -273,13 +299,16 @@ fun ProfileScreen(
                     user = user,
                     themeMode = uiState.themeMode,
                     preferences = uiState.preferences,
-                    apiBaseUrl = uiState.apiBaseUrl,
                     isAuthBusy = uiState.isAuthBusy,
                     onSetTheme = onSetTheme,
                     onUpdatePreferences = onUpdatePreferences,
                     onRequestPasswordReset = onRequestPasswordReset,
                     onResetPassword = onResetPassword,
-                    onSaveApiBaseUrl = onSaveApiBaseUrl
+                    onOpenHelpCenter = onOpenHelpCenter,
+                    discoveryState = discoveryState,
+                    onOpenDesignAudit = onOpenDesignAudit,
+                    onOpenConnectionDiagnostics = onOpenConnectionDiagnostics,
+                    onRefreshDesignManifest = onRefreshDesignManifest
                 )
             }
         }

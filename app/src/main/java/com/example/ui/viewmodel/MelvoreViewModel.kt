@@ -24,6 +24,7 @@ import com.example.model.LocalPreferences
 import com.example.model.Order
 import com.example.model.Product
 import com.example.model.RazorpayCheckoutPayload
+import com.example.model.SmartOffer
 import com.example.model.SupportTicket
 import com.example.model.TrendingTag
 import com.example.model.User
@@ -54,6 +55,9 @@ data class MelvoreUiState(
     val trackingError: String? = null,
     val isProfileBusy: Boolean = false,
     val apiConnected: Boolean = false,
+    val isShowingCachedData: Boolean = false,
+    val cachedProductCount: Int = 0,
+    val lastProductSyncTimestamp: Long? = null,
     val apiBaseUrl: String = BuildConfig.MELVORE_API_BASE,
 
     val user: User? = null,
@@ -92,16 +96,29 @@ data class MelvoreUiState(
         get() = orders.count {
             it.status.lowercase() in setOf("pending", "processing", "shipped", "out_for_delivery")
         }
+
+    fun cartQuantityForProduct(productId: Int): Int =
+        cartItems.filter { it.productId == productId }.sumOf { it.quantity }
 }
 
 class MelvoreViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MelvoreRepository(application.applicationContext)
 
+    val apiClient: com.example.network.MelvoreApiClient get() = repository.apiClient
+    val sessionStore: com.example.data.SecureSessionStore get() = repository.sessionStore
+
+    val discovery = DiscoveryViewModelDelegate(
+        context = application.applicationContext,
+        mainRepository = repository,
+        scope = viewModelScope,
+        showToast = ::showToast
+    )
+
     private val _uiState = MutableStateFlow(
         MelvoreUiState(
             preferences = repository.getPreferences(),
-            themeMode = repository.getPreferences().themeMode,
+            themeMode = repository.getPreferences().themeMode.ifBlank { "light" },
             currency = repository.getPreferences().currencyOverride,
             apiBaseUrl = repository.getApiBaseUrl()
         )
@@ -137,7 +154,41 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
         private set
 
     init {
+        observeLocalProductCache()
         refreshAll()
+    }
+
+    private fun observeLocalProductCache() {
+        viewModelScope.launch {
+            repository.cachedProductsFlow.collect { cachedProducts ->
+                if (cachedProducts.isNotEmpty()) {
+                    _uiState.update { prev ->
+                        prev.copy(
+                            cachedProductCount = cachedProducts.size,
+                            products = if (prev.products.isEmpty()) cachedProducts else prev.products,
+                            catalogProducts = if (prev.catalogProducts.isEmpty()) cachedProducts else prev.catalogProducts,
+                            isHomeLoading = if (prev.products.isEmpty()) false else prev.isHomeLoading
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(cachedProductCount = 0) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            repository.cachedCategoriesFlow.collect { cachedCategories ->
+                if (cachedCategories.isNotEmpty()) {
+                    _uiState.update { prev ->
+                        if (prev.categories.isEmpty()) prev.copy(categories = cachedCategories) else prev
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            repository.lastProductCacheSyncFlow.collect { syncedAt ->
+                _uiState.update { it.copy(lastProductSyncTimestamp = syncedAt) }
+            }
+        }
     }
 
     fun setCartOpen(open: Boolean) {
@@ -164,11 +215,62 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun refreshAccountState() {
+        viewModelScope.launch {
+            refreshAuthenticatedData()
+        }
+    }
+
     fun resetCheckoutIdempotency() {
         currentCheckoutIdempotencyKey = UUID.randomUUID().toString()
     }
 
+    fun resetApiBaseUrlToDefault() {
+        val resetUrl = repository.resetApiBaseUrlToDefault()
+        _uiState.update { it.copy(apiBaseUrl = resetUrl) }
+        showToast("API base URL reset to $resetUrl")
+        forcePullToRefresh()
+    }
+
+    /**
+     * Triggered by Home pull-to-refresh or Diagnostics sync: forces fresh fetch of
+     * design manifest (ignoring ETag), bootstrap config, home feed, themes, occasions, and catalog.
+     */
+    fun forcePullToRefresh() {
+        discovery.refreshRemoteDesignManifest(forceRefresh = true)
+        refreshAll()
+    }
+
     fun refreshAll() {
+        discovery.loadBootstrapConfig(
+            forceRefresh = true,
+            cartSubtotal = _uiState.value.cartSubtotal,
+            localPreferences = _uiState.value.preferences,
+            onServerPreferencesSynced = { serverPrefs ->
+                val cur = _uiState.value.preferences
+                val shouldHydrateFromServer = (serverPrefs.audioConsentAnswered && !cur.audioConsentAnswered) ||
+                    repository.hasAuthToken()
+                if (shouldHydrateFromServer) {
+                    val merged = cur.copy(
+                        ambientAudioEnabled = serverPrefs.ambientAudioEnabled,
+                        uiSfxEnabled = serverPrefs.uiSfxEnabled,
+                        reducedMotion = serverPrefs.reducedMotion,
+                        videoAutoplayMuted = serverPrefs.videoAutoplayMuted,
+                        dataSaverMode = serverPrefs.dataSaverMode,
+                        audioConsentAnswered = serverPrefs.audioConsentAnswered || cur.audioConsentAnswered,
+                        preferredWorldSlug = serverPrefs.preferredWorldSlug ?: cur.preferredWorldSlug
+                    )
+                    repository.savePreferences(merged)
+                    _uiState.update { it.copy(preferences = merged) }
+                }
+            }
+        )
+        discovery.loadHomeFeed()
+        discovery.loadDiscoverHub()
+        discovery.refreshRemoteDesignManifest()
+        discovery.loadOccasionsAndCampaigns()
+        discovery.refreshThemesAndActiveTheme()
+        discovery.startPeriodicDesignRefresh()
         viewModelScope.launch {
             _uiState.update { it.copy(isHomeLoading = true, homeError = null) }
 
@@ -192,18 +294,17 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
             val aboutRes = aboutDeferred.await()
             val faqsRes = faqsDeferred.await()
 
-            val primaryError = when {
-                healthRes is RepoResult.Error && designRes is RepoResult.Error -> designRes.message
-                designRes is RepoResult.Error && productsRes is RepoResult.Error -> productsRes.message
-                designRes is RepoResult.Error -> designRes.message
-                productsRes is RepoResult.Error -> productsRes.message
-                else -> null
-            }
+            val productsServedFromCache = (productsRes as? RepoResult.Success)?.fromCache == true
+            val categoriesServedFromCache = (categoriesRes as? RepoResult.Success)?.fromCache == true
+            val isOnline = healthRes is RepoResult.Success ||
+                designRes is RepoResult.Success ||
+                (productsRes is RepoResult.Success && !productsRes.fromCache)
 
             _uiState.update { prev ->
                 val designData = (designRes as? RepoResult.Success)?.data
                 val catBundle = (categoriesRes as? RepoResult.Success)?.data
-                val loadedProducts = (productsRes as? RepoResult.Success)?.data ?: prev.products
+                val loadedProducts = (productsRes as? RepoResult.Success)?.data?.takeIf { it.isNotEmpty() }
+                    ?: prev.products
                 val cartData = (cartRes as? RepoResult.Success)?.data
                 val prefs = repository.getPreferences()
 
@@ -211,16 +312,34 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                     ?: designData?.brands
                     ?: prev.brands
 
+                val resolvedCategories = catBundle?.categories?.ifEmpty { designData?.categories.orEmpty() }
+                    ?: designData?.categories
+                    ?: prev.categories
+
+                val showingOfflineCache = !isOnline &&
+                    (productsServedFromCache || categoriesServedFromCache || loadedProducts.isNotEmpty())
+
+                val primaryError = if (showingOfflineCache && loadedProducts.isNotEmpty()) {
+                    null
+                } else {
+                    when {
+                        healthRes is RepoResult.Error && designRes is RepoResult.Error -> designRes.message
+                        designRes is RepoResult.Error && productsRes is RepoResult.Error -> productsRes.message
+                        designRes is RepoResult.Error -> designRes.message
+                        productsRes is RepoResult.Error -> productsRes.message
+                        else -> null
+                    }
+                }
+
                 prev.copy(
                     isHomeLoading = false,
                     homeError = primaryError,
-                    apiConnected = healthRes is RepoResult.Success || designRes is RepoResult.Success,
+                    apiConnected = isOnline,
+                    isShowingCachedData = showingOfflineCache,
                     design = designData?.design ?: prev.design,
                     products = loadedProducts,
-                    catalogProducts = if (prev.catalogProducts.isEmpty()) loadedProducts else prev.catalogProducts,
-                    categories = catBundle?.categories?.ifEmpty { designData?.categories.orEmpty() }
-                        ?: designData?.categories
-                        ?: prev.categories,
+                    catalogProducts = if (prev.catalogProducts.isEmpty() || !productsServedFromCache) loadedProducts else prev.catalogProducts,
+                    categories = resolvedCategories,
                     brands = resolvedBrands,
                     collections = catBundle?.collections?.ifEmpty { designData?.collections.orEmpty() }
                         ?: designData?.collections
@@ -241,7 +360,7 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
 
-            if (repository.hasAuthToken()) {
+            if (repository.hasAuthToken() && isOnline) {
                 refreshAuthenticatedData()
             }
         }
@@ -311,6 +430,12 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                 pendingPaymentOrder = recoveryOrder
             )
         }
+        discovery.loadBootstrapConfig(
+            forceRefresh = true,
+            cartSubtotal = _uiState.value.cartSubtotal,
+            localPreferences = _uiState.value.preferences
+        )
+        discovery.loadDiscoverHub(forceRefresh = true)
     }
 
     // ==================== CATALOG & DETAILS ====================
@@ -324,16 +449,23 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
     ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isCatalogLoading = true, catalogError = null) }
-            val effectiveSearch = query.ifBlank {
-                if (collection.isNotBlank()) collection.replace("-", " ") else ""
+            val cleanCollection = collection.trim()
+            val onSaleFlag = if (cleanCollection.equals("sale", ignoreCase = true) || cleanCollection.equals("up-to-90-off", ignoreCase = true)) 1 else null
+            val maxPriceCap = when (cleanCollection.lowercase()) {
+                "under-999" -> 999.0
+                "under-1999" -> 1999.0
+                else -> null
             }
             val res = repository.fetchProducts(
                 page = 1,
                 limit = 100,
                 category = category,
+                collection = cleanCollection.takeIf { it.isNotBlank() },
                 brandId = brandId.takeIf { it > 0 },
-                search = effectiveSearch.takeIf { it.isNotBlank() },
-                sort = sort
+                search = query.trim().takeIf { it.isNotBlank() },
+                sort = sort,
+                onSale = onSaleFlag,
+                maxPrice = maxPriceCap
             )
             when (res) {
                 is RepoResult.Success -> {
@@ -341,12 +473,13 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                         prev.copy(
                             isCatalogLoading = false,
                             catalogError = null,
-                            catalogProducts = res.data
+                            catalogProducts = res.data,
+                            apiConnected = if (!res.fromCache) true else prev.apiConnected,
+                            isShowingCachedData = res.fromCache
                         )
                     }
                 }
                 is RepoResult.Error -> {
-                    // If a collection slug wasn't directly a search match, fall back to full list? No—report real server error if failed!
                     _uiState.update { prev ->
                         prev.copy(
                             isCatalogLoading = false,
@@ -359,34 +492,53 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun loadProductDetails(productId: Int) {
-        val cached = _uiState.value.products.find { it.id == productId }
+        val inMemory = _uiState.value.products.find { it.id == productId }
             ?: _uiState.value.catalogProducts.find { it.id == productId }
         _uiState.update {
             it.copy(
                 isProductDetailsLoading = true,
                 productDetailsError = null,
-                selectedProduct = cached
+                selectedProduct = inMemory
             )
         }
         viewModelScope.launch {
+            // Immediately hydrate from local Room cache if available (supports rich offline details & fast cold opens)
+            val localCached = runCatching { repository.getCachedProductById(productId) }.getOrNull()
+            if (localCached != null) {
+                _uiState.update { prev ->
+                    if (prev.selectedProduct == null || prev.selectedProduct.id == productId) {
+                        prev.copy(selectedProduct = localCached)
+                    } else prev
+                }
+            }
+
             when (val res = repository.fetchProductDetails(productId)) {
                 is RepoResult.Success -> {
+                    if (!res.fromCache) {
+                        discovery.recordProductViewSignal(res.data)
+                        discovery.loadProductReviews(res.data.id)
+                    }
                     _uiState.update { prev ->
                         prev.copy(
                             isProductDetailsLoading = false,
                             productDetailsError = null,
-                            selectedProduct = res.data
+                            selectedProduct = res.data,
+                            apiConnected = if (!res.fromCache) true else prev.apiConnected,
+                            isShowingCachedData = res.fromCache
                         )
                     }
                 }
                 is RepoResult.Error -> {
+                    val fallbackProduct = localCached ?: inMemory
                     _uiState.update { prev ->
                         prev.copy(
                             isProductDetailsLoading = false,
-                            productDetailsError = if (prev.selectedProduct == null) res.message else null
+                            selectedProduct = prev.selectedProduct ?: fallbackProduct,
+                            productDetailsError = if (prev.selectedProduct == null && fallbackProduct == null) res.message else null,
+                            isShowingCachedData = fallbackProduct != null || prev.isShowingCachedData
                         )
                     }
-                    if (cached != null) showToast(res.message)
+                    if (fallbackProduct != null) showToast(res.message)
                 }
             }
         }
@@ -417,27 +569,103 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
     // ==================== THEME & LOCAL PREFS ====================
 
     fun toggleTheme() {
-        val next = if (_uiState.value.themeMode == "dark") "light" else "dark"
+        val current = _uiState.value.themeMode.lowercase()
+        val next = if (current == "dark") "light" else "dark"
         setTheme(next)
     }
 
     fun setTheme(theme: String) {
-        val nextPrefs = _uiState.value.preferences.copy(themeMode = theme)
+        val normalized = when (theme.trim().lowercase()) {
+            "dark", "system", "light" -> theme.trim().lowercase()
+            else -> "light"
+        }
+        val nextPrefs = _uiState.value.preferences.copy(themeMode = normalized)
         repository.savePreferences(nextPrefs)
-        _uiState.update { it.copy(themeMode = theme, preferences = nextPrefs) }
+        _uiState.update { it.copy(themeMode = normalized, preferences = nextPrefs) }
     }
 
     fun updateLocalPreferences(patch: (LocalPreferences) -> LocalPreferences) {
         val nextPrefs = patch(_uiState.value.preferences)
-        repository.savePreferences(nextPrefs)
+        val normalizedMode = nextPrefs.themeMode.ifBlank { "light" }
+        val finalPrefs = nextPrefs.copy(themeMode = normalizedMode)
+        repository.savePreferences(finalPrefs)
         _uiState.update {
             it.copy(
-                preferences = nextPrefs,
-                themeMode = nextPrefs.themeMode,
-                currency = nextPrefs.currencyOverride
+                preferences = finalPrefs,
+                themeMode = normalizedMode,
+                currency = finalPrefs.currencyOverride
             )
         }
+        discovery.syncPreferencesWithBackend(finalPrefs)
         showToast("Preferences saved")
+    }
+
+    fun selectPreferredWorld(slug: String?) {
+        discovery.selectPreferredWorld(slug, _uiState.value.preferences) { cleanSlug ->
+            val nextPrefs = _uiState.value.preferences.copy(preferredWorldSlug = cleanSlug)
+            repository.savePreferences(nextPrefs)
+            _uiState.update { it.copy(preferences = nextPrefs) }
+            discovery.syncPreferencesWithBackend(nextPrefs)
+        }
+    }
+
+    fun answerAudioConsent(allowAmbient: Boolean) {
+        val nextPrefs = _uiState.value.preferences.copy(
+            ambientAudioEnabled = allowAmbient,
+            audioConsentAnswered = true
+        )
+        repository.savePreferences(nextPrefs)
+        _uiState.update { it.copy(preferences = nextPrefs) }
+        discovery.clearAudioConsentPrompt()
+        discovery.syncPreferencesWithBackend(nextPrefs)
+    }
+
+    fun toggleAmbientAudio(enabled: Boolean) {
+        val nextPrefs = _uiState.value.preferences.copy(
+            ambientAudioEnabled = enabled,
+            audioConsentAnswered = true
+        )
+        repository.savePreferences(nextPrefs)
+        _uiState.update { it.copy(preferences = nextPrefs) }
+        discovery.clearAudioConsentPrompt()
+        discovery.syncPreferencesWithBackend(nextPrefs)
+    }
+
+    fun toggleUiSfx(enabled: Boolean) {
+        val nextPrefs = _uiState.value.preferences.copy(
+            uiSfxEnabled = enabled,
+            audioConsentAnswered = true
+        )
+        repository.savePreferences(nextPrefs)
+        _uiState.update { it.copy(preferences = nextPrefs) }
+        discovery.syncPreferencesWithBackend(nextPrefs)
+    }
+
+    fun toggleReducedMotion(enabled: Boolean) {
+        val nextPrefs = _uiState.value.preferences.copy(reducedMotion = enabled)
+        repository.savePreferences(nextPrefs)
+        _uiState.update { it.copy(preferences = nextPrefs) }
+        discovery.syncPreferencesWithBackend(nextPrefs)
+    }
+
+    fun toggleVideoAutoplayMuted(enabled: Boolean) {
+        val nextPrefs = _uiState.value.preferences.copy(videoAutoplayMuted = enabled)
+        repository.savePreferences(nextPrefs)
+        _uiState.update { it.copy(preferences = nextPrefs) }
+        discovery.syncPreferencesWithBackend(nextPrefs)
+    }
+
+    fun toggleDataSaverMode(enabled: Boolean) {
+        val nextPrefs = _uiState.value.preferences.copy(dataSaverMode = enabled)
+        repository.savePreferences(nextPrefs)
+        _uiState.update { it.copy(preferences = nextPrefs) }
+        discovery.syncPreferencesWithBackend(nextPrefs)
+    }
+
+    fun applySmartOfferCoupon(offer: SmartOffer) {
+        discovery.applySmartOffer(offer, _uiState.value.preferences) { code ->
+            validateCoupon(code, "online") { }
+        }
     }
 
     fun saveApiBaseUrl(url: String) {
@@ -589,6 +817,12 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
             refreshCart()
+            discovery.loadBootstrapConfig(
+                forceRefresh = true,
+                cartSubtotal = 0.0,
+                localPreferences = _uiState.value.preferences
+            )
+            discovery.loadDiscoverHub(forceRefresh = true)
             showToast("Signed out of Melvore")
         }
     }
@@ -699,6 +933,31 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                     showToast(res.message)
                 }
             }
+        }
+    }
+
+    /**
+     * Quick-commerce stepper increment: if product already exists in cart, increment its line item;
+     * otherwise add 1 unit using its default variant.
+     */
+    fun incrementProductInCart(product: Product) {
+        val existing = _uiState.value.cartItems.firstOrNull { it.productId == product.id }
+        if (existing != null) {
+            updateCartQty(existing.cartId, 1)
+        } else {
+            addToCart(product = product, quantity = 1)
+        }
+    }
+
+    /**
+     * Quick-commerce stepper decrement: reduces product quantity by 1 or removes the line item at 1.
+     */
+    fun decrementProductInCart(productId: Int) {
+        val existing = _uiState.value.cartItems.firstOrNull { it.productId == productId } ?: return
+        if (existing.quantity <= 1) {
+            removeCartItem(existing.cartId)
+        } else {
+            updateCartQty(existing.cartId, -1)
         }
     }
 
@@ -1107,5 +1366,10 @@ class MelvoreViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        discovery.release()
+        super.onCleared()
     }
 }

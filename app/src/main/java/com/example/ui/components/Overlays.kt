@@ -37,14 +37,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Diamond
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.HeadsetMic
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.LocationOn
@@ -100,6 +99,8 @@ import com.example.model.User
 import com.example.model.formatPrice
 import com.example.model.parseHexColor
 import com.example.ui.theme.LocalMelvoreColors
+import com.example.ui.theme.LocalMelvoreSurfaces
+import com.example.ui.theme.ensureContrast
 import kotlin.math.max
 
 @Composable
@@ -129,6 +130,9 @@ fun SearchDiscoveryModal(
     val arrivals = remember(products) { products.take(4) }
     val recommended = remember(products) { products.sortedByDescending { it.rating }.take(4) }
 
+    val surfaces = LocalMelvoreSurfaces.current
+    val ext = LocalMelvoreColors.current
+
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
@@ -136,7 +140,7 @@ fun SearchDiscoveryModal(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xF508080C))
+                .background(surfaces.background.copy(alpha = 0.98f))
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -146,18 +150,17 @@ fun SearchDiscoveryModal(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                MelvoreWordmark(fontSize = 22.sp, color = Color.White)
-                Surface(
+                MelvoreWordmark(fontSize = 22.sp, color = surfaces.onSurface)
+                LiquidGlassBox(
                     onClick = onClose,
                     shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                    elevation = 2.dp,
                     modifier = Modifier
                         .size(44.dp)
                         .testTag("search_close_button")
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close search", tint = Color.White)
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close search", tint = surfaces.onSurface)
                     }
                 }
             }
@@ -167,24 +170,24 @@ fun SearchDiscoveryModal(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("Search jackets, loungewear, Korean street…", color = Color.White.copy(alpha = 0.5f)) },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White.copy(alpha = 0.7f)) },
+                placeholder = { Text("Search jackets, loungewear, Korean street…", color = surfaces.onSurfaceMuted) },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = surfaces.accent) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = Color.White)
+                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = surfaces.onSurface)
                         }
                     }
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedContainerColor = Color.White.copy(alpha = 0.08f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
-                    focusedBorderColor = Color.White.copy(alpha = 0.55f),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.22f)
+                    focusedTextColor = surfaces.onSurface,
+                    unfocusedTextColor = surfaces.onSurface,
+                    focusedContainerColor = surfaces.surfaceElevated,
+                    unfocusedContainerColor = surfaces.surface,
+                    focusedBorderColor = surfaces.accent,
+                    unfocusedBorderColor = surfaces.border
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -202,8 +205,8 @@ fun SearchDiscoveryModal(
                 if (trimmed.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(18.dp),
-                        color = Color(0xFF16161A),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                        color = surfaces.surface,
+                        border = BorderStroke(1.dp, surfaces.border)
                     ) {
                         if (filtered.isEmpty()) {
                             Column(
@@ -215,7 +218,7 @@ fun SearchDiscoveryModal(
                             ) {
                                 Text(
                                     text = "No cached matches for \"$query\"",
-                                    color = Color.White.copy(alpha = 0.7f),
+                                    color = surfaces.onSurfaceMuted,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Button(
@@ -229,7 +232,7 @@ fun SearchDiscoveryModal(
                             Column {
                                 Text(
                                     text = "Matching Products",
-                                    color = Color.White.copy(alpha = 0.55f),
+                                    color = surfaces.onSurfaceMuted,
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier.padding(16.dp, 14.dp, 16.dp, 6.dp)
                                 )
@@ -239,7 +242,7 @@ fun SearchDiscoveryModal(
                                         currency = currency,
                                         onClick = { onSelectProduct(product) }
                                     )
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                                    HorizontalDivider(color = surfaces.border)
                                 }
                                 Row(
                                     modifier = Modifier
@@ -251,11 +254,12 @@ fun SearchDiscoveryModal(
                                 ) {
                                     Text(
                                         text = "View all results for \"$query\"",
-                                        color = Color.White,
+                                        color = surfaces.accent,
+                                        fontWeight = FontWeight.Bold,
                                         style = MaterialTheme.typography.labelLarge
                                     )
                                     Spacer(Modifier.width(6.dp))
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = surfaces.accent, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -264,13 +268,13 @@ fun SearchDiscoveryModal(
                     if (trendingTags.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFF16161A),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                            color = surfaces.surface,
+                            border = BorderStroke(1.dp, surfaces.border)
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Outlined.LocalFireDepartment, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(16.dp))
-                                    Text("Trending Now", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.Outlined.LocalFireDepartment, contentDescription = null, tint = ext.amber, modifier = Modifier.size(16.dp))
+                                    Text("Trending Now", color = surfaces.onSurfaceMuted, style = MaterialTheme.typography.labelMedium)
                                 }
                                 Spacer(Modifier.height(10.dp))
                                 Row(
@@ -281,8 +285,8 @@ fun SearchDiscoveryModal(
                                         Surface(
                                             onClick = { query = tag.name },
                                             shape = CircleShape,
-                                            color = Color.White.copy(alpha = 0.07f),
-                                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+                                            color = surfaces.surfaceElevated,
+                                            border = BorderStroke(1.dp, surfaces.border)
                                         ) {
                                             Row(
                                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -292,10 +296,10 @@ fun SearchDiscoveryModal(
                                                 Icon(
                                                     Icons.Outlined.LocalFireDepartment,
                                                     contentDescription = null,
-                                                    tint = Color(0xFFFBBF24),
+                                                    tint = ext.amber,
                                                     modifier = Modifier.size(14.dp)
                                                 )
-                                                Text(tag.name, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                                                Text(tag.name, color = surfaces.onSurface, style = MaterialTheme.typography.labelMedium)
                                             }
                                         }
                                     }
@@ -307,13 +311,13 @@ fun SearchDiscoveryModal(
                     if (categories.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFF16161A),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                            color = surfaces.surface,
+                            border = BorderStroke(1.dp, surfaces.border)
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Outlined.GridView, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-                                    Text("Shop by Category", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.Outlined.GridView, contentDescription = null, tint = surfaces.onSurfaceMuted, modifier = Modifier.size(16.dp))
+                                    Text("Shop by Category", color = surfaces.onSurfaceMuted, style = MaterialTheme.typography.labelMedium)
                                 }
                                 Spacer(Modifier.height(10.dp))
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -323,8 +327,8 @@ fun SearchDiscoveryModal(
                                                 Surface(
                                                     onClick = { onSelectCategory(cat.slug) },
                                                     shape = RoundedCornerShape(12.dp),
-                                                    color = Color.White.copy(alpha = 0.05f),
-                                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.09f))
+                                                    color = surfaces.surfaceElevated,
+                                                    border = BorderStroke(1.dp, surfaces.border)
                                                 ) {
                                                     Column(
                                                         modifier = Modifier
@@ -344,19 +348,19 @@ fun SearchDiscoveryModal(
                                                         } else {
                                                             Surface(
                                                                 shape = CircleShape,
-                                                                color = Color.White.copy(alpha = 0.12f),
+                                                                color = surfaces.accent.copy(alpha = 0.14f),
                                                                 modifier = Modifier.size(34.dp)
                                                             ) {
                                                                 Box(contentAlignment = Alignment.Center) {
                                                                     Text(
                                                                         cat.name.take(1).uppercase(),
-                                                                        color = Color.White,
+                                                                        color = surfaces.accent,
                                                                         fontWeight = FontWeight.Bold
                                                                     )
                                                                 }
                                                             }
                                                         }
-                                                        Text(cat.name, color = Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        Text(cat.name, color = surfaces.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                     }
                                                 }
                                             }
@@ -370,8 +374,8 @@ fun SearchDiscoveryModal(
                     if (arrivals.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFF16161A),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                            color = surfaces.surface,
+                            border = BorderStroke(1.dp, surfaces.border)
                         ) {
                             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                 Row(
@@ -379,8 +383,8 @@ fun SearchDiscoveryModal(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(Icons.Outlined.StarOutline, contentDescription = null, tint = Color(0xFF34D399), modifier = Modifier.size(16.dp))
-                                    Text("New Arrivals", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.Outlined.StarOutline, contentDescription = null, tint = surfaces.success, modifier = Modifier.size(16.dp))
+                                    Text("New Arrivals", color = surfaces.onSurfaceMuted, style = MaterialTheme.typography.labelMedium)
                                 }
                                 arrivals.forEach { product ->
                                     SearchProductRow(product = product, currency = currency, onClick = { onSelectProduct(product) })
@@ -392,8 +396,8 @@ fun SearchDiscoveryModal(
                     if (recommended.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFF16161A),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                            color = surfaces.surface,
+                            border = BorderStroke(1.dp, surfaces.border)
                         ) {
                             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                 Row(
@@ -401,8 +405,8 @@ fun SearchDiscoveryModal(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(Icons.Outlined.StarOutline, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(16.dp))
-                                    Text("Recommended", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.Outlined.StarOutline, contentDescription = null, tint = ext.amber, modifier = Modifier.size(16.dp))
+                                    Text("Recommended", color = surfaces.onSurfaceMuted, style = MaterialTheme.typography.labelMedium)
                                 }
                                 recommended.forEach { product ->
                                     SearchProductRow(product = product, currency = currency, onClick = { onSelectProduct(product) })
@@ -414,13 +418,13 @@ fun SearchDiscoveryModal(
                     if (collections.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFF16161A),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                            color = surfaces.surface,
+                            border = BorderStroke(1.dp, surfaces.border)
                         ) {
                             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Outlined.Layers, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-                                    Text("Featured Collections", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+                                    Icon(Icons.Outlined.Layers, contentDescription = null, tint = surfaces.onSurfaceMuted, modifier = Modifier.size(16.dp))
+                                    Text("Featured Collections", color = surfaces.onSurfaceMuted, style = MaterialTheme.typography.labelMedium)
                                 }
                                 collections.forEach { col ->
                                     Box(
@@ -428,7 +432,7 @@ fun SearchDiscoveryModal(
                                             .fillMaxWidth()
                                             .height(64.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                                            .border(1.dp, surfaces.border, RoundedCornerShape(12.dp))
                                             .clickable { onSelectCollection(col.slug) }
                                     ) {
                                         MelvoreNetworkImage(
@@ -439,7 +443,14 @@ fun SearchDiscoveryModal(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .background(Brush.horizontalGradient(listOf(Color(0xEE08080C), Color(0x8808080C))))
+                                                .background(
+                                                    Brush.horizontalGradient(
+                                                        listOf(
+                                                            surfaces.imageOverlay.copy(alpha = 0.88f),
+                                                            surfaces.imageOverlay.copy(alpha = 0.45f)
+                                                        )
+                                                    )
+                                                )
                                         )
                                         Row(
                                             modifier = Modifier
@@ -450,11 +461,11 @@ fun SearchDiscoveryModal(
                                         ) {
                                             Column {
                                                 if (col.subtitle.isNotBlank()) {
-                                                    Text(col.subtitle, color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.labelSmall)
+                                                    Text(col.subtitle, color = surfaces.onImageOverlay.copy(alpha = 0.78f), style = MaterialTheme.typography.labelSmall)
                                                 }
-                                                Text(col.name, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                                Text(col.name, color = surfaces.onImageOverlay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                             }
-                                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.75f), modifier = Modifier.size(16.dp))
+                                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = surfaces.onImageOverlay.copy(alpha = 0.86f), modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -473,6 +484,7 @@ private fun SearchProductRow(
     currency: String,
     onClick: () -> Unit
 ) {
+    val surfaces = LocalMelvoreSurfaces.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -489,12 +501,12 @@ private fun SearchProductRow(
                 .clip(RoundedCornerShape(10.dp))
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(product.name, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(product.category, color = Color.White.copy(alpha = 0.55f), style = MaterialTheme.typography.bodySmall)
+            Text(product.name, color = surfaces.onSurface, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(product.category, color = surfaces.onSurfaceMuted, style = MaterialTheme.typography.bodySmall)
         }
         Text(
             text = formatPrice(product.effectivePrice, currency),
-            color = Color.White,
+            color = surfaces.onSurface,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.bodyMedium
@@ -784,7 +796,6 @@ fun CartBottomSheet(
 @Composable
 fun ProfileMenuBottomSheet(
     user: User?,
-    isDark: Boolean,
     pendingOrdersCount: Int,
     wishlistCount: Int,
     onDismiss: () -> Unit,
@@ -793,11 +804,11 @@ fun ProfileMenuBottomSheet(
     onNavigateHome: () -> Unit,
     onNavigateShop: () -> Unit,
     onNavigateCategories: () -> Unit,
+    onNavigateElite: () -> Unit,
     onNavigateTrack: () -> Unit,
     onNavigateBlog: () -> Unit,
     onNavigateFaq: () -> Unit,
     onNavigateContact: () -> Unit,
-    onToggleTheme: () -> Unit,
     onLogout: () -> Unit
 ) {
     val ext = LocalMelvoreColors.current
@@ -845,20 +856,16 @@ fun ProfileMenuBottomSheet(
                 SheetMenuRow(Icons.Outlined.ShoppingBag, "Orders", badge = pendingOrdersCount) { onNavigateProfileTab("orders") }
                 SheetMenuRow(Icons.Outlined.FavoriteBorder, "Wishlist", badge = wishlistCount) { onNavigateProfileTab("wishlist") }
                 SheetMenuRow(Icons.Outlined.LocationOn, "Addresses") { onNavigateProfileTab("addresses") }
-                SheetMenuRow(Icons.Outlined.HeadsetMic, "Support") { onNavigateProfileTab("tickets") }
+                SheetMenuRow(Icons.Outlined.HeadsetMic, "Help & Tickets") { onNavigateFaq() }
 
                 HorizontalDivider(color = ext.borderSubtle, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                Text("More", style = MaterialTheme.typography.labelMedium, color = ext.muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                Text("Explore & Account", style = MaterialTheme.typography.labelMedium, color = ext.muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                SheetMenuRow(Icons.Outlined.Diamond, "Melvore Luxe Showroom", tint = ext.goldAccent, onClick = onNavigateElite)
                 SheetMenuRow(Icons.Outlined.LocalShipping, "Track Order", onClick = onNavigateTrack)
-                SheetMenuRow(Icons.Outlined.AutoStories, "Blog", onClick = onNavigateBlog)
-                SheetMenuRow(Icons.AutoMirrored.Outlined.HelpOutline, "FAQ", onClick = onNavigateFaq)
+                SheetMenuRow(Icons.Outlined.AutoStories, "Editorial Journal", onClick = onNavigateBlog)
+                SheetMenuRow(Icons.AutoMirrored.Outlined.HelpOutline, "FAQ & Help Center", onClick = onNavigateFaq)
                 SheetMenuRow(Icons.Outlined.Phone, "Contact", onClick = onNavigateContact)
-                SheetMenuRow(Icons.Outlined.Settings, "Settings") { onNavigateProfileTab("settings") }
-                SheetMenuRow(
-                    if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                    if (isDark) "Light Mode" else "Dark Mode",
-                    onClick = onToggleTheme
-                )
+                SheetMenuRow(Icons.Outlined.Settings, "Preferences & Currency") { onNavigateProfileTab("settings") }
                 HorizontalDivider(color = ext.borderSubtle, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 SheetMenuRow(
                     Icons.AutoMirrored.Outlined.Logout,
@@ -911,15 +918,11 @@ fun ProfileMenuBottomSheet(
                 SheetMenuRow(Icons.Outlined.Home, "Home", onClick = onNavigateHome)
                 SheetMenuRow(Icons.Outlined.Storefront, "Products", onClick = onNavigateShop)
                 SheetMenuRow(Icons.Outlined.GridView, "Categories", onClick = onNavigateCategories)
+                SheetMenuRow(Icons.Outlined.Diamond, "Melvore Luxe Showroom", tint = ext.goldAccent, onClick = onNavigateElite)
                 SheetMenuRow(Icons.Outlined.LocalShipping, "Track Order", onClick = onNavigateTrack)
-                SheetMenuRow(Icons.AutoMirrored.Outlined.HelpOutline, "FAQ", onClick = onNavigateFaq)
-                SheetMenuRow(Icons.Outlined.AutoStories, "Blog", onClick = onNavigateBlog)
+                SheetMenuRow(Icons.AutoMirrored.Outlined.HelpOutline, "FAQ & Help Center", onClick = onNavigateFaq)
+                SheetMenuRow(Icons.Outlined.AutoStories, "Editorial Journal", onClick = onNavigateBlog)
                 SheetMenuRow(Icons.Outlined.Phone, "Contact", onClick = onNavigateContact)
-                SheetMenuRow(
-                    if (isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                    if (isDark) "Light Mode" else "Dark Mode",
-                    onClick = onToggleTheme
-                )
             }
         }
     }
@@ -945,14 +948,232 @@ private fun SheetMenuRow(
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
         Text(label, color = tint, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
         if (badge > 0) {
-            Surface(shape = CircleShape, color = ext.crimson) {
+            val surfaces = LocalMelvoreSurfaces.current
+            Surface(shape = CircleShape, color = surfaces.sale) {
                 Text(
                     text = badge.toString(),
-                    color = Color.White,
+                    color = ensureContrast(surfaces.onAccent, surfaces.sale),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun QuickVariationSelectorBottomSheet(
+    product: Product,
+    currency: String,
+    isCartBusy: Boolean,
+    onDismiss: () -> Unit,
+    onConfirmAdd: (color: String?, size: String?) -> Unit,
+    onOpenFullDetails: () -> Unit
+) {
+    val ext = LocalMelvoreColors.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val variationColors = remember(product) {
+        product.colors.ifEmpty {
+            product.variations
+                .mapNotNull { it.color.takeIf { c -> c.isNotBlank() } }
+                .distinct()
+                .map { com.example.model.ColorVariant(name = it, hex = "#18181B") }
+        }
+    }
+    val variationSizes = remember(product) {
+        product.sizes.ifEmpty {
+            product.variations
+                .mapNotNull { it.size.takeIf { s -> s.isNotBlank() } }
+                .distinct()
+        }
+    }
+
+    var selectedColor by remember(product.id) { mutableStateOf(variationColors.firstOrNull()?.name) }
+    var selectedSize by remember(product.id) { mutableStateOf(variationSizes.firstOrNull()) }
+
+    val matchedVariation = remember(product, selectedColor, selectedSize) {
+        product.variations.find { v ->
+            v.isActive &&
+                (selectedColor == null || v.color.equals(selectedColor, ignoreCase = true) || v.color.isBlank()) &&
+                (selectedSize == null || v.size.equals(selectedSize, ignoreCase = true) || v.size.isBlank())
+        }
+    }
+    val activePrice = matchedVariation?.salePrice ?: matchedVariation?.regularPrice ?: product.effectivePrice
+    val availableStock = matchedVariation?.stockQuantity ?: product.stockQuantity
+    val canAdd = product.inStock && (product.variations.isEmpty() || matchedVariation == null || (matchedVariation.isActive && matchedVariation.stockQuantity > 0))
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+                .testTag("quick_variation_sheet"),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                MelvoreNetworkImage(
+                    url = matchedVariation?.imageUrl ?: product.imageUrl,
+                    contentDescription = product.name,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        text = product.brandName.ifBlank { product.category }.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ext.goldAccent,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = product.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = formatPrice(activePrice, currency),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close variation selector")
+                }
+            }
+
+            if (variationColors.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Color: ${selectedColor.orEmpty()}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        variationColors.forEach { cv ->
+                            val picked = selectedColor.equals(cv.name, ignoreCase = true)
+                            Surface(
+                                onClick = { selectedColor = cv.name },
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(1.dp, if (picked) MaterialTheme.colorScheme.primary else ext.borderSubtle),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(parseHexColor(cv.hex)))
+                                            .border(1.dp, ext.borderSubtle, CircleShape)
+                                    )
+                                    Text(
+                                        text = cv.name,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (picked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (variationSizes.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Size: ${selectedSize.orEmpty()}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        variationSizes.forEach { sz ->
+                            val picked = selectedSize.equals(sz, ignoreCase = true)
+                            Surface(
+                                onClick = { selectedSize = sz },
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(1.dp, if (picked) MaterialTheme.colorScheme.primary else ext.borderSubtle),
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("quick_var_size_$sz")
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                                ) {
+                                    Text(
+                                        text = sz,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (picked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (availableStock in 1..5) {
+                Text(
+                    text = "Only $availableStock left in this option",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ext.amber
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onOpenFullDetails,
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .weight(0.9f)
+                        .height(48.dp)
+                ) {
+                    Text("Details")
+                }
+                Button(
+                    onClick = { onConfirmAdd(selectedColor, selectedSize) },
+                    enabled = canAdd && !isCartBusy,
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(48.dp)
+                        .testTag("quick_var_add_button")
+                ) {
+                    Icon(Icons.Outlined.ShoppingBag, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (canAdd) "Add to Bag" else "Out of Stock")
+                }
             }
         }
     }

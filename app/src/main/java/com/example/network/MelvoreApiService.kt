@@ -21,11 +21,14 @@ interface MelvoreApiService {
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 50,
         @Query("category") category: String? = null,
+        @Query("collection") collection: String? = null,
         @Query("brand_id") brandId: Int? = null,
         @Query("search") search: String? = null,
         @Query("sort") sort: String? = null,
         @Query("featured") featured: Int? = null,
-        @Query("on_sale") onSale: Int? = null
+        @Query("on_sale") onSale: Int? = null,
+        @Query("min_price") minPrice: Double? = null,
+        @Query("max_price") maxPrice: Double? = null
     ): ProductsListResponse
 
     @GET("api/products/details.php")

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,13 +50,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.model.Product
 import com.example.ui.components.MelvoreErrorState
 import com.example.ui.components.MelvoreLoadingState
 import com.example.ui.components.MelvoreNetworkImage
+import com.example.ui.components.OfflineCacheBanner
 import com.example.ui.components.ProductCard
 import com.example.ui.theme.LocalMelvoreColors
+import com.example.ui.theme.LocalMelvoreSurfaces
 import com.example.ui.viewmodel.MelvoreUiState
 import kotlinx.coroutines.delay
 
@@ -103,6 +109,15 @@ fun ShopScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (uiState.isShowingCachedData) {
+            item(key = "shop_offline_cache_banner") {
+                OfflineCacheBanner(
+                    cachedItemCount = uiState.cachedProductCount.takeIf { it > 0 } ?: displayedProducts.size,
+                    onRetry = { onFetchCatalog(activeCategory, activeCollection, localQuery, sortBy, activeBrandId) }
+                )
+            }
+        }
+
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -113,9 +128,14 @@ fun ShopScreen(
                     Text(
                         text = when {
                             activeBrand != null -> activeBrand.name
+                            activeCollection.equals("under-999", ignoreCase = true) -> "Under ₹999 Edit"
+                            activeCollection.equals("under-1999", ignoreCase = true) -> "Under ₹1,999 Edit"
+                            activeCollection.equals("up-to-90-off", ignoreCase = true) -> "Up to 90% Off"
                             activeCollection.isNotBlank() -> activeCollection.replace("-", " ").split(" ").joinToString(" ") { w ->
                                 w.replaceFirstChar { it.uppercase() }
                             }
+                            activeCategory.isNotBlank() && !activeCategory.equals("all", ignoreCase = true) ->
+                                activeCategory.replace("-", " ").split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
                             else -> "All Products"
                         },
                         style = MaterialTheme.typography.headlineMedium
@@ -331,18 +351,22 @@ fun CategoriesScreen(
     onRetry: () -> Unit,
     onSelectCategory: (String) -> Unit,
     onSelectCollection: (String) -> Unit,
+    onOpenProduct: (Product) -> Unit = {},
+    onIncrementCart: (Product) -> Unit = {},
+    onDecrementCart: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val ext = LocalMelvoreColors.current
+    val surfaces = LocalMelvoreSurfaces.current
 
-    if (uiState.isHomeLoading && uiState.categories.isEmpty()) {
+    if (uiState.isHomeLoading && uiState.categories.isEmpty() && uiState.products.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             MelvoreLoadingState("Loading categories…")
         }
         return
     }
 
-    if (uiState.homeError != null && uiState.categories.isEmpty()) {
+    if (uiState.homeError != null && uiState.categories.isEmpty() && uiState.products.isEmpty()) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -354,98 +378,338 @@ fun CategoriesScreen(
         return
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    val allCatalog = remember(uiState.products, uiState.catalogProducts) {
+        (uiState.products + uiState.catalogProducts).distinctBy { it.id }
+    }
+    val railCategories = uiState.categories
+    var selectedCategorySlug by remember(railCategories) {
+        mutableStateOf(railCategories.firstOrNull()?.slug ?: "all")
+    }
+    var activeSort by remember { mutableStateOf("popular") }
+    var onlyOnSale by remember { mutableStateOf(false) }
+
+    val activeCategory = remember(railCategories, selectedCategorySlug) {
+        railCategories.firstOrNull { it.slug.equals(selectedCategorySlug, ignoreCase = true) }
+    }
+
+    val filteredProducts = remember(allCatalog, selectedCategorySlug, activeCategory, activeSort, onlyOnSale) {
+        val byCat = if (selectedCategorySlug == "all" || activeCategory == null) {
+            allCatalog
+        } else {
+            allCatalog.filter { p ->
+                p.categoryId == activeCategory.id ||
+                    p.category.equals(activeCategory.name, ignoreCase = true) ||
+                    p.category.equals(activeCategory.slug, ignoreCase = true) ||
+                    p.category.contains(activeCategory.name, ignoreCase = true)
+            }.ifEmpty { allCatalog }
+        }
+        val bySale = if (onlyOnSale) {
+            byCat.filter { it.discountPercent > 0 }
+        } else byCat
+
+        when (activeSort) {
+            "price_asc" -> bySale.sortedBy { it.effectivePrice }
+            "price_desc" -> bySale.sortedByDescending { it.effectivePrice }
+            "discount" -> bySale.sortedByDescending { it.discountPercent }
+            else -> bySale
+        }
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .testTag("categories_left_rail_screen")
     ) {
-        item {
-            Column {
-                Text("Categories", style = MaterialTheme.typography.headlineMedium)
-                Text("Browse Melvore India collections by silhouette and fabric.", style = MaterialTheme.typography.bodySmall, color = ext.muted)
+        // Left vertical category sidebar (Blinkit / Instamart style)
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 1.dp,
+            modifier = Modifier
+                .width(90.dp)
+                .fillMaxHeight()
+                .testTag("categories_left_rail")
+        ) {
+            LazyColumn(
+                contentPadding = PaddingValues(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                item(key = "rail_all") {
+                    LeftRailCategoryItem(
+                        name = "All",
+                        imageUrl = null,
+                        selected = selectedCategorySlug == "all",
+                        onClick = { selectedCategorySlug = "all" },
+                        testTag = "rail_cat_all"
+                    )
+                }
+                items(railCategories, key = { it.id }) { cat ->
+                    LeftRailCategoryItem(
+                        name = cat.name,
+                        imageUrl = cat.imageUrl,
+                        selected = selectedCategorySlug.equals(cat.slug, ignoreCase = true),
+                        onClick = { selectedCategorySlug = cat.slug },
+                        testTag = "rail_cat_${cat.slug}"
+                    )
+                }
             }
         }
 
-        items(uiState.categories.chunked(2)) { pair ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                pair.forEach { cat ->
-                    Surface(
-                        onClick = { onSelectCategory(cat.slug) },
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(1.dp, ext.borderSubtle),
+        // Divider between left rail and right product grid
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .fillMaxHeight()
+                .background(ext.borderSubtle)
+        )
+
+        // Right pane: header + sticky filter/sort chips + 2-column QuickCommerceProductCard grid
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        ) {
+            // Sticky filter/sort chips bar
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = activeCategory?.name ?: "All Styles",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (!cat.imageUrl.isNullOrBlank()) {
-                                MelvoreNetworkImage(
-                                    url = cat.imageUrl,
-                                    contentDescription = cat.name,
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(RoundedCornerShape(2.dp))
+                    )
+                    Text(
+                        text = "${filteredProducts.size} items",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ext.muted
+                    )
+                }
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.testTag("categories_filter_chips")
+                ) {
+                    item(key = "chip_popular") {
+                        CategoryFilterChip(
+                            label = "Popular",
+                            selected = activeSort == "popular",
+                            onClick = { activeSort = "popular" }
+                        )
+                    }
+                    item(key = "chip_price_asc") {
+                        CategoryFilterChip(
+                            label = "Low to High",
+                            selected = activeSort == "price_asc",
+                            onClick = { activeSort = "price_asc" }
+                        )
+                    }
+                    item(key = "chip_price_desc") {
+                        CategoryFilterChip(
+                            label = "High to Low",
+                            selected = activeSort == "price_desc",
+                            onClick = { activeSort = "price_desc" }
+                        )
+                    }
+                    item(key = "chip_discount") {
+                        CategoryFilterChip(
+                            label = "Best Deals",
+                            selected = activeSort == "discount",
+                            onClick = { activeSort = "discount" }
+                        )
+                    }
+                    item(key = "chip_sale") {
+                        CategoryFilterChip(
+                            label = "On Sale",
+                            selected = onlyOnSale,
+                            onClick = { onlyOnSale = !onlyOnSale }
+                        )
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(ext.borderSubtle)
+            )
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (filteredProducts.isEmpty()) {
+                    item(key = "cat_empty") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "No items match these filters",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Try clearing sale filter or exploring all styles.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ext.muted
+                            )
+                        }
+                    }
+                } else {
+                    items(filteredProducts.chunked(2), key = { row -> row.joinToString("_") { it.id.toString() } }) { pair ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            pair.forEach { prod ->
+                                com.example.ui.components.QuickCommerceProductCard(
+                                    product = prod,
+                                    currency = uiState.currency,
+                                    cartQuantity = uiState.cartQuantityForProduct(prod.id),
+                                    onProductClick = { onOpenProduct(prod) },
+                                    onIncrement = { onIncrementCart(prod) },
+                                    onDecrement = { onDecrementCart(prod.id) },
+                                    modifier = Modifier.weight(1f)
                                 )
-                            } else {
-                                Surface(
-                                    shape = RoundedCornerShape(2.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            cat.name.take(1).uppercase(),
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
                             }
-                            Column {
-                                Text(cat.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                Text("${cat.itemCount} styles", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = ext.muted)
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                if (uiState.collections.isNotEmpty() && selectedCategorySlug == "all") {
+                    item(key = "cat_collections_hdr") {
+                        Text(
+                            text = "Curated Collections",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                        )
+                    }
+                    items(uiState.collections.take(4), key = { "col_${it.id}" }) { col ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(118.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onSelectCollection(col.slug) }
+                        ) {
+                            MelvoreNetworkImage(
+                                url = col.bannerUrl,
+                                contentDescription = col.name,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Brush.verticalGradient(listOf(Color.Transparent, surfaces.imageOverlay.copy(alpha = 0.82f))))
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(12.dp)
+                            ) {
+                                if (col.subtitle.isNotBlank()) {
+                                    Text(col.subtitle, color = surfaces.onImageOverlay.copy(alpha = 0.82f), style = MaterialTheme.typography.labelSmall)
+                                }
+                                Text(col.name, color = surfaces.onImageOverlay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
-                if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+    }
+}
 
-        if (uiState.collections.isNotEmpty()) {
-            item {
-                Text("Featured Edits", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 6.dp))
-            }
-
-            items(uiState.collections, key = { it.id }) { col ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(170.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { onSelectCollection(col.slug) }
-                ) {
+@Composable
+private fun LeftRailCategoryItem(
+    name: String,
+    imageUrl: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    val ext = LocalMelvoreColors.current
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (selected) accent.copy(alpha = 0.08f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Active left indicator bar (Blinkit / Instamart signature)
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .height(42.dp)
+                .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
+                .background(if (selected) accent else Color.Transparent)
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (selected) accent.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                border = BorderStroke(
+                    width = if (selected) 1.5.dp else 1.dp,
+                    color = if (selected) accent else ext.borderSubtle
+                ),
+                modifier = Modifier.size(50.dp)
+            ) {
+                if (!imageUrl.isNullOrBlank()) {
                     MelvoreNetworkImage(
-                        url = col.bannerUrl,
-                        contentDescription = col.name,
+                        url = imageUrl,
+                        contentDescription = name,
                         modifier = Modifier.fillMaxSize()
                     )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))))
-                    )
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(18.dp)
-                    ) {
-                        if (col.subtitle.isNotBlank()) {
-                            Text(col.subtitle, color = Color.White.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall)
-                        }
-                        Text(col.name, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                } else {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = name.take(2).uppercase(),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (selected) accent else MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
+            Text(
+                text = name,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (selected) accent else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 13.sp
+            )
         }
     }
 }

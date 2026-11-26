@@ -6,6 +6,41 @@ import kotlinx.serialization.Serializable
 object HomeRoute
 
 @Serializable
+object DiscoverRoute
+
+@Serializable
+object VideosRoute
+
+@Serializable
+object EliteRoute
+
+@Serializable
+data class ElitePackRoute(
+    val packId: Int = 0,
+    val slug: String = ""
+)
+
+@Serializable
+object BagRoute
+
+@Serializable
+data class BrandDetailRoute(
+    val brandId: Int = 0,
+    val slug: String = ""
+)
+
+@Serializable
+data class StyleWorldRoute(
+    val styleWorldId: Int = 0,
+    val slug: String = ""
+)
+
+@Serializable
+data class HelpSupportRoute(
+    val topicSlug: String = ""
+)
+
+@Serializable
 data class ShopRoute(
     val category: String = "all",
     val collection: String = "",
@@ -18,7 +53,8 @@ object CategoriesRoute
 
 @Serializable
 data class ProductDetailsRoute(
-    val productId: Int
+    val productId: Int,
+    val worldSlug: String = ""
 )
 
 @Serializable
@@ -50,3 +86,9 @@ object FaqRoute
 
 @Serializable
 object ContactRoute
+
+@Serializable
+object DesignAuditRoute
+
+@Serializable
+object ConnectionDiagnosticsRoute

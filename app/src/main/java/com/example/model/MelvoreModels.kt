@@ -30,6 +30,8 @@ data class ProductReview(
     val comment: String,
     val isVerifiedPurchase: Boolean = false,
     val helpfulCount: Int = 0,
+    val hasVotedHelpful: Boolean = false,
+    val mediaUrls: List<String> = emptyList(),
     val createdAt: String = ""
 )
 
@@ -66,7 +68,10 @@ data class Product(
     val reviewCount: Int = 0,
     val stockQuantity: Int = 0,
     val inStock: Boolean = true,
-    val isFeatured: Boolean = false
+    val isFeatured: Boolean = false,
+    val isSponsored: Boolean = false,
+    val expressDelivery: Boolean = false,
+    val videoUrls: List<String> = emptyList()
 ) {
     val effectivePrice: Double get() = salePrice ?: regularPrice
     val hasDiscount: Boolean get() = salePrice != null && salePrice < regularPrice
@@ -97,7 +102,16 @@ data class Category(
     val description: String = "",
     val imageUrl: String? = null,
     val itemCount: Int = 0,
-    val isFeatured: Boolean = false
+    val isFeatured: Boolean = false,
+    val coverImageUrl: String? = null,
+    val motifKey: String = "editorial_frame",
+    val editorialBadge: String? = null,
+    val editorialSubtitle: String? = null,
+    val accentHex: String = "#141414",
+    val bgHex: String = "#F8F7F4",
+    val animationKey: String = "zoom_reveal",
+    val tileSpan: String = "regular",
+    val displayOrder: Int = 0
 )
 
 data class CollectionItem(
@@ -366,8 +380,18 @@ data class LocalPreferences(
     val currencyOverride: String = "₹",
     val orderNotifications: Boolean = true,
     val promoNotifications: Boolean = true,
-    val priceDropAlerts: Boolean = false
+    val priceDropAlerts: Boolean = false,
+    val ambientAudioEnabled: Boolean = false,
+    val uiSfxEnabled: Boolean = false,
+    val reducedMotion: Boolean = false,
+    val videoAutoplayMuted: Boolean = true,
+    val dataSaverMode: Boolean = false,
+    val audioConsentAnswered: Boolean = false,
+    val preferredWorldSlug: String? = null
 )
+
+fun requiresVariantSelection(product: Product): Boolean =
+    product.colors.size > 1 || product.sizes.size > 1 || product.variations.isNotEmpty()
 
 data class BlogPost(
     val id: Int,
@@ -419,11 +443,11 @@ fun formatPrice(amount: Double, currency: String = "₹"): String {
     return "$currency${formatter.format(value)}"
 }
 
-fun parseHexColor(hex: String): Long {
+fun parseHexColor(hex: String, defaultHex: Long = 0xFF141414L): Long {
     val clean = hex.removePrefix("#").trim()
     return when (clean.length) {
-        6 -> ("FF$clean").toLongOrNull(16) ?: 0xFF141414
-        8 -> clean.toLongOrNull(16) ?: 0xFF141414
-        else -> 0xFF141414
+        6 -> ("FF$clean").toLongOrNull(16) ?: defaultHex
+        8 -> clean.toLongOrNull(16) ?: defaultHex
+        else -> defaultHex
     }
 }

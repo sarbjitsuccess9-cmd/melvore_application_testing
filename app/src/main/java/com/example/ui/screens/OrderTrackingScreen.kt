@@ -398,6 +398,22 @@ fun OrderTrackingScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.padding(bottom = 10.dp)
                             )
+                            val designKit = com.example.ui.theme.LocalDesignKit.current
+                            val worldKit = com.example.ui.theme.LocalWorld.current
+                            val orderStepsUrl = remember(designKit, worldKit) {
+                                designKit.url(worldKit?.widgetPath("order_steps"))
+                            }
+                            if (!orderStepsUrl.isNullOrBlank()) {
+                                com.example.ui.design.AnimatedSvg(
+                                    url = orderStepsUrl,
+                                    contentDescription = "Order tracking steps animation",
+                                    reducedMotion = uiState.preferences.reducedMotion,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(64.dp)
+                                        .padding(bottom = 10.dp)
+                                )
+                            }
                             order.timeline.forEachIndexed { idx, step ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -412,7 +428,15 @@ fun OrderTrackingScreen(
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 if (step.completed) {
-                                                    Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                    Icon(
+                                                        Icons.Filled.Check,
+                                                        contentDescription = null,
+                                                        tint = com.example.ui.theme.ensureContrast(
+                                                            com.example.ui.theme.LocalMelvoreSurfaces.current.onAccent,
+                                                            ext.emerald
+                                                        ),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
                                                 }
                                             }
                                         }

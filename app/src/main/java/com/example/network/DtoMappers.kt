@@ -129,7 +129,16 @@ object DtoMappers {
         description = description.orEmpty(),
         imageUrl = resolveMediaUrl(imageUrl),
         itemCount = productCount,
-        isFeatured = isFeatured
+        isFeatured = isFeatured,
+        coverImageUrl = resolveMediaUrl(coverImageUrl) ?: resolveMediaUrl(imageUrl),
+        motifKey = motifKey.ifBlank { "editorial_frame" },
+        editorialBadge = editorialBadge?.takeIf { it.isNotBlank() },
+        editorialSubtitle = editorialSubtitle?.takeIf { it.isNotBlank() },
+        accentHex = accentHex.ifBlank { "#141414" },
+        bgHex = bgHex.ifBlank { "#F8F7F4" },
+        animationKey = animationKey.ifBlank { "zoom_reveal" },
+        tileSpan = tileSpan.ifBlank { "regular" },
+        displayOrder = displayOrder
     )
 
     fun BrandDto.toDomain(): BrandItem = BrandItem(
@@ -207,6 +216,8 @@ object DtoMappers {
                 comment = it.comment,
                 isVerifiedPurchase = it.isVerifiedPurchase,
                 helpfulCount = it.helpfulCount,
+                hasVotedHelpful = it.hasVotedHelpful,
+                mediaUrls = it.media.mapNotNull { m -> resolveMediaUrl(m.url) },
                 createdAt = it.createdAt
             )
         },
@@ -216,7 +227,10 @@ object DtoMappers {
         reviewCount = ratingCount,
         stockQuantity = stockQuantity,
         inStock = inStock,
-        isFeatured = isFeatured
+        isFeatured = isFeatured,
+        isSponsored = isSponsored,
+        expressDelivery = expressDelivery,
+        videoUrls = videos.mapNotNull { resolveMediaUrl(it.url) }
     )
 
     fun UserDto.toDomain(): User = User(

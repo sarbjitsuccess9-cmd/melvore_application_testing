@@ -1,6 +1,8 @@
 package com.example.data
 
 import android.content.Context
+import com.example.data.local.MelvoreDatabase
+import com.example.data.local.ProductCacheRepository
 import com.example.model.AboutSection
 import com.example.model.Address
 import com.example.model.BlogPost
@@ -19,6 +21,8 @@ import com.example.model.RazorpayCheckoutPayload
 import com.example.model.SupportTicket
 import com.example.model.TrendingTag
 import com.example.model.User
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import com.example.network.AddressDeleteRequest
 import com.example.network.AddressSaveRequest
 import com.example.network.ApiResult
@@ -89,7 +93,11 @@ data class WishlistData(
 )
 
 sealed interface RepoResult<out T> {
-    data class Success<T>(val data: T, val message: String = "") : RepoResult<T>
+    data class Success<T>(
+        val data: T,
+        val message: String = "",
+        val fromCache: Boolean = false
+    ) : RepoResult<T>
     data class Error(
         val message: String,
         val errorCode: String? = null,
@@ -98,21 +106,54 @@ sealed interface RepoResult<out T> {
 }
 
 /**
- * Production repository backed exclusively by the Hostinger PHP/MySQL API
- * (https://app.melvore.co.in) and Android Keystore session storage.
+ * Production repository backed by the Hostinger PHP/MySQL API (https://app.melvore.co.in),
+ * Android Keystore session storage, and a local Room database cache for offline product browsing.
  */
 class MelvoreRepository(
     val sessionStore: SecureSessionStore,
-    val apiClient: MelvoreApiClient = MelvoreApiClient(sessionStore)
+    val apiClient: MelvoreApiClient = MelvoreApiClient(sessionStore),
+    val productCache: ProductCacheRepository? = null
 ) {
-    constructor(context: Context) : this(SecureSessionStore(context.applicationContext))
+    constructor(context: Context) : this(
+        sessionStore = SecureSessionStore(context.applicationContext),
+        productCache = ProductCacheRepository(
+            MelvoreDatabase.getInstance(context.applicationContext).productCacheDao()
+        )
+    )
+
+    val cachedProductsFlow: Flow<List<Product>>
+        get() = productCache?.cachedProductsFlow ?: emptyFlow()
+
+    val cachedCategoriesFlow: Flow<List<Category>>
+        get() = productCache?.cachedCategoriesFlow ?: emptyFlow()
+
+    val cachedProductCountFlow: Flow<Int>
+        get() = productCache?.cachedProductCountFlow ?: emptyFlow()
+
+    val lastProductCacheSyncFlow: Flow<Long?>
+        get() = productCache?.lastSyncedAtFlow ?: emptyFlow()
+
+    fun observeCachedProduct(productId: Int): Flow<Product?> =
+        productCache?.observeProduct(productId) ?: emptyFlow()
+
+    suspend fun getCachedProductById(productId: Int): Product? =
+        productCache?.getCachedProductById(productId)
 
     fun hasAuthToken(): Boolean = !sessionStore.getAuthToken().isNullOrBlank()
     fun clearAuthToken() = sessionStore.clearAuthToken()
     fun getPreferences(): LocalPreferences = sessionStore.getPreferences()
     fun savePreferences(prefs: LocalPreferences) = sessionStore.savePreferences(prefs)
     fun getApiBaseUrl(): String = sessionStore.getApiBaseUrl().trimEnd('/')
-    fun setApiBaseUrl(url: String): String = sessionStore.setApiBaseUrl(url)
+    fun setApiBaseUrl(url: String): String {
+        val updated = sessionStore.setApiBaseUrl(url)
+        apiClient.invalidateRetrofitCache()
+        return updated
+    }
+    fun resetApiBaseUrlToDefault(): String {
+        val reset = sessionStore.resetApiBaseUrlToDefault()
+        apiClient.invalidateRetrofitCache()
+        return reset
+    }
     fun getPendingPaymentOrderId(): Int? = sessionStore.getPendingPaymentOrderId()
     fun setPendingPaymentOrderId(orderId: Int?) = sessionStore.setPendingPaymentOrderId(orderId)
 
@@ -144,14 +185,26 @@ class MelvoreRepository(
         return when (val res = apiClient.safeCall { it.getDesignBundle("all") }) {
             is ApiResult.Success -> {
                 val bundle = res.data
+                val designDomain = bundle.toDomain()
+                val categoriesDomain = bundle.categories.map { it.toDomain() }
                 val activeBrands = bundle.brands
                     .map { it.toDomain() }
                     .filter { it.isActive && it.name.isNotBlank() }
                     .sortedWith(compareBy<BrandItem> { it.displayOrder }.thenBy { it.name.lowercase() })
+
+                runCatching {
+                    if (designDomain.featuredProducts.isNotEmpty()) {
+                        productCache?.cacheProducts(designDomain.featuredProducts, isDetailed = false)
+                    }
+                    if (categoriesDomain.isNotEmpty()) {
+                        productCache?.cacheCategories(categoriesDomain)
+                    }
+                }
+
                 RepoResult.Success(
                     DesignHubData(
-                        design = bundle.toDomain(),
-                        categories = bundle.categories.map { it.toDomain() },
+                        design = designDomain,
+                        categories = categoriesDomain,
                         brands = activeBrands,
                         collections = bundle.collections.map { it.toDomain() },
                         trendingTags = bundle.trendingTags.map { it.toDomain() },
@@ -167,13 +220,17 @@ class MelvoreRepository(
         page: Int = 1,
         limit: Int = 50,
         category: String? = null,
+        collection: String? = null,
         brandId: Int? = null,
         search: String? = null,
         sort: String? = null,
         featured: Int? = null,
-        onSale: Int? = null
+        onSale: Int? = null,
+        minPrice: Double? = null,
+        maxPrice: Double? = null
     ): RepoResult<List<Product>> {
-        val cleanCat = category?.trim()?.takeIf { it.isNotEmpty() && it != "all" }
+        val cleanCat = category?.trim()?.takeIf { it.isNotEmpty() && !it.equals("all", ignoreCase = true) }
+        val cleanCollection = collection?.trim()?.takeIf { it.isNotEmpty() && !it.equals("all", ignoreCase = true) }
         val cleanBrandId = brandId?.takeIf { it > 0 }
         val cleanSearch = search?.trim()?.takeIf { it.isNotEmpty() }
         val cleanSort = sort?.trim()?.takeIf { it.isNotEmpty() && it != "featured" }
@@ -182,40 +239,116 @@ class MelvoreRepository(
                 page = page,
                 limit = limit,
                 category = cleanCat,
+                collection = cleanCollection,
                 brandId = cleanBrandId,
                 search = cleanSearch,
                 sort = cleanSort,
                 featured = featured,
-                onSale = onSale
+                onSale = onSale,
+                minPrice = minPrice,
+                maxPrice = maxPrice
             )
         }) {
-            is ApiResult.Success -> RepoResult.Success(res.data.products.map { it.toDomain() })
-            is ApiResult.Error -> RepoResult.Error(res.message, res.errorCode, res.httpStatus)
+            is ApiResult.Success -> {
+                val domainProducts = res.data.resolvedProducts().map { it.toDomain() }
+                sessionStore.recordEndpointUpdated("products_list")
+                runCatching {
+                    productCache?.cacheProducts(domainProducts, isDetailed = false)
+                }
+                RepoResult.Success(domainProducts, fromCache = false)
+            }
+            is ApiResult.Error -> {
+                val cacheRepo = productCache
+                val hasAnyCached = runCatching { cacheRepo?.hasCachedProducts() == true }.getOrDefault(false)
+                if (cacheRepo != null && hasAnyCached) {
+                    val cachedMatches = runCatching {
+                        cacheRepo.queryCachedProducts(
+                            category = cleanCat,
+                            collection = cleanCollection,
+                            brandId = cleanBrandId,
+                            search = cleanSearch,
+                            sort = cleanSort,
+                            featured = featured,
+                            onSale = onSale,
+                            minPrice = minPrice,
+                            maxPrice = maxPrice,
+                            limit = limit
+                        )
+                    }.getOrDefault(emptyList())
+                    RepoResult.Success(
+                        data = cachedMatches,
+                        message = "Offline mode · showing saved catalog",
+                        fromCache = true
+                    )
+                } else {
+                    RepoResult.Error(res.message, res.errorCode, res.httpStatus)
+                }
+            }
         }
     }
 
     suspend fun fetchProductDetails(productId: Int): RepoResult<Product> {
         return when (val res = apiClient.safeCall { it.getProductDetails(productId) }) {
             is ApiResult.Success -> {
-                val dto = res.data.product
-                if (dto != null) RepoResult.Success(dto.toDomain())
-                else RepoResult.Error("Product details not found.")
+                val dto = res.data.resolvedProduct()
+                if (dto != null) {
+                    val domain = dto.toDomain()
+                    runCatching { productCache?.cacheProductDetail(domain) }
+                    RepoResult.Success(domain, fromCache = false)
+                } else {
+                    RepoResult.Error("Product details not found.")
+                }
             }
-            is ApiResult.Error -> RepoResult.Error(res.message, res.errorCode, res.httpStatus)
+            is ApiResult.Error -> {
+                val cached = runCatching { productCache?.getCachedProductById(productId) }.getOrNull()
+                if (cached != null) {
+                    RepoResult.Success(
+                        data = cached,
+                        message = "Offline mode · showing saved product details",
+                        fromCache = true
+                    )
+                } else {
+                    RepoResult.Error(res.message, res.errorCode, res.httpStatus)
+                }
+            }
         }
     }
 
     suspend fun fetchCategories(): RepoResult<CategoriesBundle> {
-        return apiClient.safeCall { it.getCategories() }.mapResult("Failed to load categories") {
-            val activeBrands = it.brands
-                .map { b -> b.toDomain() }
-                .filter { b -> b.isActive && b.name.isNotBlank() }
-                .sortedWith(compareBy<BrandItem> { b -> b.displayOrder }.thenBy { b -> b.name.lowercase() })
-            CategoriesBundle(
-                categories = it.categories.map { c -> c.toDomain() },
-                brands = activeBrands,
-                collections = it.collections.map { col -> col.toDomain() }
-            )
+        return when (val res = apiClient.safeCall { it.getCategories() }) {
+            is ApiResult.Success -> {
+                val categories = res.data.resolvedCategories().map { c -> c.toDomain() }
+                val activeBrands = res.data.resolvedBrands()
+                    .map { b -> b.toDomain() }
+                    .filter { b -> b.isActive && b.name.isNotBlank() }
+                    .sortedWith(compareBy<BrandItem> { b -> b.displayOrder }.thenBy { b -> b.name.lowercase() })
+                sessionStore.recordEndpointUpdated("categories")
+                runCatching { productCache?.cacheCategories(categories) }
+                RepoResult.Success(
+                    CategoriesBundle(
+                        categories = categories,
+                        brands = activeBrands,
+                        collections = res.data.resolvedCollections().map { col -> col.toDomain() }
+                    ),
+                    fromCache = false
+                )
+            }
+            is ApiResult.Error -> {
+                val cachedCategories = runCatching { productCache?.getCachedCategories().orEmpty() }.getOrDefault(emptyList())
+                if (cachedCategories.isNotEmpty()) {
+                    RepoResult.Success(
+                        data = CategoriesBundle(
+                            categories = cachedCategories,
+                            brands = emptyList(),
+                            collections = emptyList()
+                        ),
+                        message = "Offline mode · showing saved categories",
+                        fromCache = true
+                    )
+                } else {
+                    RepoResult.Error(res.message.ifBlank { "Failed to load categories" }, res.errorCode, res.httpStatus)
+                }
+            }
         }
     }
 

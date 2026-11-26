@@ -47,11 +47,14 @@ class MelvoreApiClient(
             }
             chain.proceed(reqBuilder.build())
         }
+        .addInterceptor(NetworkDiagnosticsMonitor.interceptor)
         .apply {
             if (BuildConfig.DEBUG) {
                 addInterceptor(
                     HttpLoggingInterceptor().apply {
                         level = HttpLoggingInterceptor.Level.BASIC
+                        redactHeader("Authorization")
+                        redactHeader("Cookie")
                     }
                 )
             }
@@ -63,6 +66,19 @@ class MelvoreApiClient(
 
     @Volatile
     private var cachedService: MelvoreApiService? = null
+
+    @Volatile
+    private var cachedDiscoveryService: DiscoveryApiService? = null
+
+    fun rawOkHttpClient(): OkHttpClient = okHttpClient
+
+    fun invalidateRetrofitCache() {
+        synchronized(this) {
+            cachedBaseUrl = ""
+            cachedService = null
+            cachedDiscoveryService = null
+        }
+    }
 
     fun service(): MelvoreApiService {
         val currentBase = sessionStore.getApiBaseUrl()
@@ -82,15 +98,50 @@ class MelvoreApiClient(
                 .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
                 .build()
             val created = retrofit.create(MelvoreApiService::class.java)
+            val createdDiscovery = retrofit.create(DiscoveryApiService::class.java)
             cachedBaseUrl = recheckBase
             cachedService = created
+            cachedDiscoveryService = createdDiscovery
             return created
         }
     }
 
-    suspend fun <T> safeCall(block: suspend (MelvoreApiService) -> T): ApiResult<T> {
+    fun discoveryService(): DiscoveryApiService {
+        service()
+        return cachedDiscoveryService ?: synchronized(this) {
+            service()
+            cachedDiscoveryService!!
+        }
+    }
+
+    suspend fun <T> safeCall(block: suspend (MelvoreApiService) -> T): ApiResult<T> =
+        executeSafely { block(service()) }
+
+    suspend fun <T> safeDiscoveryCall(block: suspend (DiscoveryApiService) -> T): ApiResult<T> =
+        executeSafely { block(discoveryService()) }
+
+    private suspend fun <T> executeSafely(block: suspend () -> T): ApiResult<T> {
         return try {
-            ApiResult.Success(block(service()))
+            val result = block()
+            // Enforce HTTP 200 with { "success": false } as an explicit ApiResult.Error
+            // rather than silently succeeding with empty lists.
+            if (result is ApiEnvelope<*> && !result.success) {
+                return ApiResult.Error(
+                    message = result.message?.takeIf { it.isNotBlank() }
+                        ?: "Server returned success=false.",
+                    errorCode = result.errorCode,
+                    httpStatus = 200
+                )
+            }
+            if (result is StrictSuccessResponse && !result.success) {
+                return ApiResult.Error(
+                    message = result.message?.takeIf { it.isNotBlank() }
+                        ?: "Server returned success=false.",
+                    errorCode = result.errorCode,
+                    httpStatus = 200
+                )
+            }
+            ApiResult.Success(result)
         } catch (e: HttpException) {
             val status = e.code()
             val rawBody = runCatching { e.response()?.errorBody()?.string() }.getOrNull()

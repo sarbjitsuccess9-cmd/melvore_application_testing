@@ -5,6 +5,7 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -106,8 +108,12 @@ import com.example.model.formatPrice
 import com.example.model.parseHexColor
 import com.example.ui.components.MelvoreNetworkImage
 import com.example.ui.components.MelvoreWordmark
+import com.example.ui.components.SlowEditorialZoomBox
 import com.example.ui.theme.LocalMelvoreColors
+import com.example.ui.theme.LocalMelvoreSurfaces
 import com.example.ui.theme.MelvoreBrandFontFamily
+import com.example.ui.theme.MelvoreSerifFontFamily
+import com.example.ui.theme.ensureContrast
 import kotlinx.coroutines.delay
 
 @Composable
@@ -290,6 +296,13 @@ fun EditorialHeroSlider(
 ) {
     if (slides.isEmpty()) return
     val ext = LocalMelvoreColors.current
+    val surfaces = LocalMelvoreSurfaces.current
+    val manifest = com.example.ui.theme.LocalMelvoreDesignManifest.current
+    val worldTheme = com.example.ui.theme.LocalFashionWorldTheme.current
+    val worldKit = remember(manifest, worldTheme) {
+        com.example.ui.components.RemoteDesignRegistry.activeWorldKit(manifest, worldTheme)
+    }
+    val heroFallbackSvg = manifest.media.heroFallbackImage.takeIf { it.isNotBlank() }
     val pagerState = rememberPagerState(pageCount = { slides.size })
     val fallbackDrawables = listOf(
         R.drawable.img_hero_look,
@@ -299,7 +312,7 @@ fun EditorialHeroSlider(
 
     LaunchedEffect(slides.size, pagerState.isScrollInProgress, animationsEnabled) {
         if (slides.size > 1 && !pagerState.isScrollInProgress) {
-            delay(8000L)
+            delay(7500L)
             val nextPage = (pagerState.currentPage + 1) % slides.size
             if (animationsEnabled) {
                 pagerState.animateScrollToPage(
@@ -314,13 +327,13 @@ fun EditorialHeroSlider(
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val isWide = maxWidth >= 600.dp
-        val heroHeight = if (isWide) 540.dp else 496.dp
+        val heroHeight = if (isWide) 520.dp else 456.dp
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(heroHeight)
-                .background(ext.darkEditorialBg)
+                .background(surfaces.surfaceElevated)
                 .testTag("hero_slider_card")
         ) {
             HorizontalPager(
@@ -340,19 +353,43 @@ fun EditorialHeroSlider(
                             onSlideCta(slide)
                         }
                 ) {
-                    MelvoreNetworkImage(
-                        url = resolvedImage,
-                        contentDescription = slide.title.ifBlank {
-                            slide.eyebrow.ifBlank { "Melvore Editorial Slide ${idx + 1}" }
-                        },
-                        contentScale = ContentScale.Crop,
-                        fallbackDrawable = if (resolvedImage.isNullOrBlank()) {
-                            fallbackDrawables[idx % fallbackDrawables.size]
-                        } else null,
+                    SlowEditorialZoomBox(
+                        triggerKey = "${pagerState.currentPage}_$idx",
                         modifier = Modifier.fillMaxSize()
-                    )
+                    ) {
+                        if (resolvedImage.isNullOrBlank() && heroFallbackSvg != null) {
+                            com.example.ui.components.RemoteSvgSkinImage(
+                                relativeOrAbsoluteUrl = heroFallbackSvg,
+                                contentDescription = slide.title.ifBlank {
+                                    slide.eyebrow.ifBlank { "Melvore Editorial Slide ${idx + 1}" }
+                                },
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                                fallback = {
+                                    MelvoreNetworkImage(
+                                        url = null,
+                                        contentDescription = slide.title.ifBlank { "Melvore Editorial Slide ${idx + 1}" },
+                                        contentScale = ContentScale.Crop,
+                                        fallbackDrawable = fallbackDrawables[idx % fallbackDrawables.size],
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            )
+                        } else {
+                            MelvoreNetworkImage(
+                                url = resolvedImage,
+                                contentDescription = slide.title.ifBlank {
+                                    slide.eyebrow.ifBlank { "Melvore Editorial Slide ${idx + 1}" }
+                                },
+                                contentScale = ContentScale.Crop,
+                                fallbackDrawable = if (resolvedImage.isNullOrBlank()) {
+                                    fallbackDrawables[idx % fallbackDrawables.size]
+                                } else null,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
 
-                    // Only shade bottom area when DB specifies text or CTA; pure image-only otherwise
                     if (showOverlayContent) {
                         Box(
                             modifier = Modifier
@@ -360,10 +397,10 @@ fun EditorialHeroSlider(
                                 .background(
                                     Brush.verticalGradient(
                                         colorStops = arrayOf(
-                                            0.0f to Color.Transparent,
-                                            0.55f to Color.Black.copy(alpha = 0.08f),
-                                            0.82f to Color.Black.copy(alpha = 0.56f),
-                                            1.0f to Color.Black.copy(alpha = 0.84f)
+                                            0.0f to surfaces.imageOverlay.copy(alpha = 0.08f),
+                                            0.48f to Color.Transparent,
+                                            0.78f to surfaces.imageOverlay.copy(alpha = 0.62f),
+                                            1.0f to surfaces.imageOverlay.copy(alpha = 0.88f)
                                         )
                                     )
                                 )
@@ -378,16 +415,16 @@ fun EditorialHeroSlider(
                         ) {
                             if (slide.eyebrow.isNotBlank()) {
                                 Surface(
-                                    shape = RoundedCornerShape(2.dp),
-                                    color = Color.White
+                                    shape = RoundedCornerShape(3.dp),
+                                    color = surfaces.surface
                                 ) {
                                     Text(
                                         text = slide.eyebrow.uppercase(),
-                                        color = Color.Black,
+                                        color = surfaces.onSurface,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.4.sp,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                        letterSpacing = 1.5.sp,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
                                 }
                             }
@@ -395,18 +432,20 @@ fun EditorialHeroSlider(
                             if (slide.title.isNotBlank()) {
                                 Text(
                                     text = slide.title,
-                                    color = Color.White,
+                                    color = surfaces.onImageOverlay,
                                     style = MaterialTheme.typography.displaySmall,
-                                    fontFamily = MelvoreBrandFontFamily,
-                                    fontWeight = FontWeight.Bold
+                                    fontFamily = MelvoreSerifFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
                             if (slide.subtitle.isNotBlank()) {
                                 Text(
                                     text = slide.subtitle,
-                                    color = Color.White.copy(alpha = 0.90f),
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = surfaces.onImageOverlay.copy(alpha = 0.90f),
+                                    style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -415,13 +454,14 @@ fun EditorialHeroSlider(
                             if (hasCta) {
                                 Button(
                                     onClick = { onSlideCta(slide) },
-                                    shape = RoundedCornerShape(2.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color.White,
-                                        contentColor = Color.Black
+                                        containerColor = surfaces.surface,
+                                        contentColor = surfaces.onSurface
                                     ),
                                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
                                     modifier = Modifier
+                                        .heightIn(min = 48.dp)
                                         .padding(top = if (hasText) 4.dp else 0.dp)
                                         .testTag("hero_cta_button")
                                 ) {
@@ -430,7 +470,7 @@ fun EditorialHeroSlider(
                                         style = MaterialTheme.typography.labelLarge,
                                         fontFamily = MelvoreBrandFontFamily,
                                         fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.sp
+                                        letterSpacing = 1.1.sp
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Icon(
@@ -445,27 +485,17 @@ fun EditorialHeroSlider(
                 }
             }
 
-            // Minimal edge hairline progress bars at bottom without counter or arrows
             if (slides.size > 1) {
-                Row(
+                com.example.ui.components.RemoteSvgPagerIndicator(
+                    pageCount = slides.size,
+                    currentPage = pagerState.currentPage,
+                    pagerSvgPath = worldKit?.svg?.pager,
+                    activeColor = surfaces.onImageOverlay,
+                    inactiveColor = surfaces.onImageOverlay.copy(alpha = 0.38f),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    slides.indices.forEach { idx ->
-                        val selected = idx == pagerState.currentPage
-                        Box(
-                            modifier = Modifier
-                                .width(if (selected) 28.dp else 12.dp)
-                                .height(2.dp)
-                                .background(
-                                    if (selected) Color.White else Color.White.copy(alpha = 0.40f)
-                                )
-                        )
-                    }
-                }
+                        .padding(bottom = 12.dp)
+                )
             }
         }
     }
@@ -695,9 +725,11 @@ fun MonochromeValueRibbon(
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
+    val surfaces = LocalMelvoreSurfaces.current
     Surface(
         shape = RoundedCornerShape(0.dp),
-        color = Color.Black,
+        color = surfaces.surfaceElevated,
+        border = BorderStroke(0.5.dp, surfaces.border),
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
@@ -725,13 +757,13 @@ fun MonochromeValueRibbon(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = surfaces.accent)
                     Text(
                         text = item.text.uppercase(),
                         style = MaterialTheme.typography.labelMedium,
                         letterSpacing = 1.1.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = surfaces.onSurface
                     )
                 }
             }
@@ -750,6 +782,7 @@ fun AsymmetricalCampaignGrid(
 ) {
     if (banners.isEmpty()) return
     val ext = LocalMelvoreColors.current
+    val surfaces = LocalMelvoreSurfaces.current
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (banners.size >= 2) {
@@ -772,7 +805,7 @@ fun AsymmetricalCampaignGrid(
                 ) {
                     CampaignPosterCard(
                         banner = banners[1],
-                        accentColor = Color.Black,
+                        accentColor = surfaces.accent,
                         onClick = { onBannerClick(banners[1]) },
                         compact = true,
                         modifier = Modifier
@@ -785,7 +818,7 @@ fun AsymmetricalCampaignGrid(
                             onClick = { onProductClick(spotlightProduct) },
                             shape = RoundedCornerShape(4.dp),
                             color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, ext.borderSubtle),
+                            border = BorderStroke(0.5.dp, ext.borderSubtle.copy(alpha = 0.65f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(102.dp)
@@ -846,7 +879,7 @@ fun AsymmetricalCampaignGrid(
         banners.drop(2).forEach { extra ->
             CampaignPosterCard(
                 banner = extra,
-                accentColor = Color.Black,
+                accentColor = surfaces.accent,
                 onClick = { onBannerClick(extra) },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -864,6 +897,7 @@ private fun CampaignPosterCard(
     compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val surfaces = LocalMelvoreSurfaces.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -875,7 +909,7 @@ private fun CampaignPosterCard(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(4.dp))
-            .background(Color(0xFF111111))
+            .background(surfaces.surfaceElevated)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
     ) {
         MelvoreNetworkImage(
@@ -894,8 +928,8 @@ private fun CampaignPosterCard(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.14f),
-                            Color.Black.copy(alpha = 0.86f)
+                            surfaces.imageOverlay.copy(alpha = 0.14f),
+                            surfaces.imageOverlay.copy(alpha = 0.86f)
                         )
                     )
                 )
@@ -910,7 +944,7 @@ private fun CampaignPosterCard(
                 Surface(shape = RoundedCornerShape(2.dp), color = accentColor) {
                     Text(
                         text = banner.tag.uppercase(),
-                        color = Color.White,
+                        color = ensureContrast(surfaces.onAccent, accentColor),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
@@ -925,7 +959,7 @@ private fun CampaignPosterCard(
                 if (banner.subtitle.isNotBlank()) {
                     Text(
                         text = banner.subtitle,
-                        color = Color.White.copy(alpha = 0.86f),
+                        color = surfaces.onImageOverlay.copy(alpha = 0.86f),
                         style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -934,7 +968,7 @@ private fun CampaignPosterCard(
                 if (banner.title.isNotBlank()) {
                     Text(
                         text = banner.title,
-                        color = Color.White,
+                        color = surfaces.onImageOverlay,
                         style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
                         fontFamily = MelvoreBrandFontFamily,
                         fontWeight = FontWeight.Bold,
@@ -946,8 +980,8 @@ private fun CampaignPosterCard(
                     Spacer(Modifier.height(2.dp))
                     Surface(
                         shape = RoundedCornerShape(2.dp),
-                        color = Color.White,
-                        contentColor = Color.Black
+                        color = surfaces.surface,
+                        contentColor = surfaces.onSurface
                     ) {
                         Text(
                             text = "${banner.ctaText.uppercase()} →",
@@ -974,6 +1008,7 @@ fun RunwayLookbookCard(
     modifier: Modifier = Modifier
 ) {
     val ext = LocalMelvoreColors.current
+    val surfaces = LocalMelvoreSurfaces.current
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1002,7 +1037,7 @@ fun RunwayLookbookCard(
                 scaleY = scale
             }
             .clip(RoundedCornerShape(4.dp))
-            .background(Color(0xFF141414))
+            .background(surfaces.surfaceElevated)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onOpenProduct)
             .testTag("drop_card_${product.id}")
     ) {
@@ -1017,9 +1052,9 @@ fun RunwayLookbookCard(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.0f to Color.Black.copy(alpha = 0.22f),
+                            0.0f to surfaces.imageOverlay.copy(alpha = 0.22f),
                             0.48f to Color.Transparent,
-                            1.0f to Color.Black.copy(alpha = 0.88f)
+                            1.0f to surfaces.imageOverlay.copy(alpha = 0.88f)
                         )
                     )
                 )
@@ -1033,13 +1068,14 @@ fun RunwayLookbookCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (!product.badge.isNullOrBlank()) {
+                val badgeBg = if (product.hasDiscount) surfaces.sale else surfaces.imageOverlay.copy(alpha = 0.82f)
                 Surface(
                     shape = RoundedCornerShape(2.dp),
-                    color = if (product.hasDiscount) ext.crimson else Color.Black.copy(alpha = 0.82f)
+                    color = badgeBg
                 ) {
                     Text(
                         text = product.badge.uppercase(),
-                        color = Color.White,
+                        color = surfaces.onImageOverlay,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
@@ -1054,13 +1090,13 @@ fun RunwayLookbookCard(
                 Surface(
                     onClick = onQuickAdd,
                     shape = RoundedCornerShape(2.dp),
-                    color = Color.Black.copy(alpha = 0.65f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f)),
+                    color = surfaces.imageOverlay.copy(alpha = 0.65f),
+                    border = BorderStroke(1.dp, surfaces.onImageOverlay.copy(alpha = 0.55f)),
                     modifier = Modifier.testTag("drop_quick_add_${product.id}")
                 ) {
                     Text(
                         "+ ADD",
-                        color = Color.White,
+                        color = surfaces.onImageOverlay,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
@@ -1082,7 +1118,7 @@ fun RunwayLookbookCard(
             ) {
                 Text(
                     text = brandOrOrigin.uppercase(),
-                    color = Color.White.copy(alpha = 0.82f),
+                    color = surfaces.onImageOverlay.copy(alpha = 0.84f),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.9.sp
@@ -1093,7 +1129,7 @@ fun RunwayLookbookCard(
                             modifier = Modifier
                                 .size(8.dp)
                                 .background(Color(parseHexColor(c.hex)))
-                                .border(0.75.dp, Color.White.copy(alpha = 0.65f))
+                                .border(0.75.dp, surfaces.onImageOverlay.copy(alpha = 0.65f))
                         )
                     }
                 }
@@ -1101,7 +1137,7 @@ fun RunwayLookbookCard(
 
             Text(
                 text = product.name,
-                color = Color.White,
+                color = surfaces.onImageOverlay,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -1121,7 +1157,7 @@ fun RunwayLookbookCard(
                 ) {
                     Text(
                         text = formatPrice(product.effectivePrice, currency),
-                        color = Color.White,
+                        color = surfaces.onImageOverlay,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.bodyMedium
@@ -1129,13 +1165,13 @@ fun RunwayLookbookCard(
                     if (product.hasDiscount) {
                         Text(
                             text = "-${product.discountPercent}%",
-                            color = ext.emerald,
+                            color = ensureContrast(ext.emerald, surfaces.imageOverlay),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
-                Text("VIEW →", color = Color.White.copy(alpha = 0.88f), style = MaterialTheme.typography.labelSmall)
+                Text("VIEW →", color = surfaces.onImageOverlay.copy(alpha = 0.88f), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -1322,6 +1358,7 @@ fun TopEditorialNavigationOverlay(
 
                     // 2. Campaign Visual Panel (DB-driven from banners / collections)
                     if (featuredVisualBanner != null || featuredCollection != null) {
+                        val surfaces = LocalMelvoreSurfaces.current
                         val visualUrl = featuredVisualBanner?.imageUrl ?: featuredCollection?.bannerUrl
                         val visualLabel = featuredVisualBanner?.tag?.ifBlank { "CAMPAIGN" } ?: "FEATURED COLLECTION"
                         val visualTitle = featuredVisualBanner?.title ?: featuredCollection?.name.orEmpty()
@@ -1330,7 +1367,7 @@ fun TopEditorialNavigationOverlay(
                                 .fillMaxWidth()
                                 .height(152.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Color.Black)
+                                .background(surfaces.surfaceElevated)
                                 .clickable {
                                     onDismiss()
                                     if (featuredCollection != null) {
@@ -1350,7 +1387,10 @@ fun TopEditorialNavigationOverlay(
                                     .fillMaxSize()
                                     .background(
                                         Brush.horizontalGradient(
-                                            listOf(Color.Black.copy(alpha = 0.84f), Color.Black.copy(alpha = 0.25f))
+                                            listOf(
+                                                surfaces.imageOverlay.copy(alpha = 0.84f),
+                                                surfaces.imageOverlay.copy(alpha = 0.25f)
+                                            )
                                         )
                                     )
                             )
@@ -1362,14 +1402,14 @@ fun TopEditorialNavigationOverlay(
                             ) {
                                 Text(
                                     text = visualLabel.uppercase(),
-                                    color = Color.White.copy(alpha = 0.78f),
+                                    color = surfaces.onImageOverlay.copy(alpha = 0.80f),
                                     style = MaterialTheme.typography.labelSmall,
                                     letterSpacing = 1.4.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = visualTitle,
-                                    color = Color.White,
+                                    color = surfaces.onImageOverlay,
                                     fontFamily = MelvoreBrandFontFamily,
                                     style = MaterialTheme.typography.headlineSmall,
                                     fontWeight = FontWeight.Bold,
@@ -1616,6 +1656,59 @@ fun TopEditorialNavigationOverlay(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EditorialSectionHeader(
+    eyebrow: String,
+    title: String,
+    actionLabel: String = "",
+    onAction: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val ext = LocalMelvoreColors.current
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (eyebrow.isNotBlank()) {
+                Text(
+                    text = eyebrow.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    letterSpacing = 1.7.sp,
+                    color = ext.goldAccent,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontFamily = MelvoreBrandFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+        }
+        if (actionLabel.isNotBlank()) {
+            Surface(
+                onClick = onAction,
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, ext.borderSubtle),
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
+                    Text(
+                        text = actionLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }

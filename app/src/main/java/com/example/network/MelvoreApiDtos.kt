@@ -8,6 +8,16 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 
+/**
+ * Marker interface for read-endpoint responses where HTTP 200 with `success == false`
+ * must be surfaced as [ApiResult.Error] rather than silently parsed as empty data.
+ */
+interface StrictSuccessResponse {
+    val success: Boolean
+    val message: String?
+    val errorCode: String?
+}
+
 @Serializable
 data class ApiErrorEnvelope(
     val success: Boolean = false,
@@ -24,12 +34,14 @@ data class ApiMessageResponse(
 
 @Serializable
 data class HealthResponse(
-    val success: Boolean = false,
+    override val success: Boolean = false,
     val status: String = "",
     val service: String = "",
     @SerialName("active_products") val activeProducts: Int = 0,
-    val timestamp: String = ""
-)
+    val timestamp: String = "",
+    override val message: String? = null,
+    @SerialName("error_code") override val errorCode: String? = null
+) : StrictSuccessResponse
 
 // ==================== DESIGN BUNDLE ====================
 
@@ -128,6 +140,15 @@ data class CategoryDto(
     val slug: String = "",
     val description: String? = null,
     @SerialName("image_url") val imageUrl: String? = null,
+    @SerialName("cover_image_url") val coverImageUrl: String? = null,
+    @SerialName("motif_key") val motifKey: String = "editorial_frame",
+    @SerialName("editorial_badge") val editorialBadge: String? = null,
+    @SerialName("editorial_subtitle") val editorialSubtitle: String? = null,
+    @SerialName("accent_hex") val accentHex: String = "#141414",
+    @SerialName("bg_hex") val bgHex: String = "#F8F7F4",
+    @SerialName("animation_key") val animationKey: String = "zoom_reveal",
+    @SerialName("tile_span") val tileSpan: String = "regular",
+    @SerialName("display_order") val displayOrder: Int = 0,
     @SerialName("is_featured") val isFeatured: Boolean = false,
     @SerialName("product_count") val productCount: Int = 0
 )
@@ -238,6 +259,12 @@ data class ProductVariationDto(
 )
 
 @Serializable
+data class ReviewMediaDto(
+    val url: String = "",
+    val type: String = "image"
+)
+
+@Serializable
 data class ReviewDto(
     @SerialName("review_id") val reviewId: Int = 0,
     @SerialName("user_name") val userName: String = "Customer",
@@ -246,7 +273,18 @@ data class ReviewDto(
     val comment: String = "",
     @SerialName("is_verified_purchase") val isVerifiedPurchase: Boolean = false,
     @SerialName("helpful_count") val helpfulCount: Int = 0,
+    @SerialName("has_voted_helpful") val hasVotedHelpful: Boolean = false,
+    val media: List<ReviewMediaDto> = emptyList(),
     @SerialName("created_at") val createdAt: String = ""
+)
+
+@Serializable
+data class ProductVideoMediaDto(
+    val type: String = "video",
+    val url: String = "",
+    @SerialName("thumbnail_url") val thumbnailUrl: String? = null,
+    @SerialName("alt_text") val altText: String = "",
+    @SerialName("is_primary") val isPrimary: Boolean = false
 )
 
 @Serializable
@@ -272,12 +310,15 @@ data class ProductDto(
     @SerialName("stock_quantity") val stockQuantity: Int = 0,
     @SerialName("in_stock") val inStock: Boolean = true,
     @SerialName("is_featured") val isFeatured: Boolean = false,
+    @SerialName("is_sponsored") val isSponsored: Boolean = false,
+    @SerialName("express_delivery") val expressDelivery: Boolean = false,
     val weight: Double? = null,
     val dimensions: String? = null,
     @SerialName("rating_average") val ratingAverage: Double = 0.0,
     @SerialName("rating_count") val ratingCount: Int = 0,
     @SerialName("primary_image") val primaryImage: String? = null,
     val images: List<String> = emptyList(),
+    val videos: List<ProductVideoMediaDto> = emptyList(),
     @SerialName("available_colors") val availableColors: List<ColorVariantDto> = emptyList(),
     @SerialName("available_sizes") val availableSizes: List<String> = emptyList(),
     val variations: List<ProductVariationDto> = emptyList(),
@@ -294,31 +335,77 @@ data class PaginationDto(
 )
 
 @Serializable
-data class ProductsListResponse(
-    val success: Boolean = false,
+data class ProductsListDataDto(
     val products: List<ProductDto> = emptyList(),
     val pagination: PaginationDto = PaginationDto()
 )
 
 @Serializable
-data class ProductDetailsResponse(
-    val success: Boolean = false,
+data class ProductsListResponse(
+    override val success: Boolean = false,
+    val products: List<ProductDto> = emptyList(),
+    val pagination: PaginationDto = PaginationDto(),
+    val data: ProductsListDataDto? = null,
+    override val message: String? = null,
+    @SerialName("error_code") override val errorCode: String? = null
+) : StrictSuccessResponse {
+    fun resolvedProducts(): List<ProductDto> = data?.products?.takeIf { it.isNotEmpty() } ?: products
+    fun resolvedPagination(): PaginationDto = data?.pagination ?: pagination
+}
+
+@Serializable
+data class ProductDetailsDataDto(
     val product: ProductDto? = null
 )
 
 @Serializable
-data class CategoriesResponse(
-    val success: Boolean = false,
+data class ProductDetailsResponse(
+    override val success: Boolean = false,
+    val product: ProductDto? = null,
+    val data: ProductDetailsDataDto? = null,
+    override val message: String? = null,
+    @SerialName("error_code") override val errorCode: String? = null
+) : StrictSuccessResponse {
+    fun resolvedProduct(): ProductDto? = data?.product ?: product
+}
+
+@Serializable
+data class CategoriesDataDto(
     val categories: List<CategoryDto> = emptyList(),
     val brands: List<BrandDto> = emptyList(),
     val collections: List<CollectionDto> = emptyList()
 )
 
 @Serializable
-data class ReviewsListResponse(
-    val success: Boolean = false,
+data class CategoriesResponse(
+    override val success: Boolean = false,
+    val categories: List<CategoryDto> = emptyList(),
+    val brands: List<BrandDto> = emptyList(),
+    val collections: List<CollectionDto> = emptyList(),
+    val data: CategoriesDataDto? = null,
+    override val message: String? = null,
+    @SerialName("error_code") override val errorCode: String? = null
+) : StrictSuccessResponse {
+    fun resolvedCategories(): List<CategoryDto> = data?.categories?.takeIf { it.isNotEmpty() } ?: categories
+    fun resolvedBrands(): List<BrandDto> = data?.brands?.takeIf { it.isNotEmpty() } ?: brands
+    fun resolvedCollections(): List<CollectionDto> = data?.collections?.takeIf { it.isNotEmpty() } ?: collections
+}
+
+@Serializable
+data class ReviewsListDataDto(
     val reviews: List<ReviewDto> = emptyList()
 )
+
+@Serializable
+data class ReviewsListResponse(
+    override val success: Boolean = false,
+    val reviews: List<ReviewDto> = emptyList(),
+    val data: ReviewsListDataDto? = null,
+    override val message: String? = null,
+    @SerialName("error_code") override val errorCode: String? = null
+) : StrictSuccessResponse {
+    fun resolvedReviews(): List<ReviewDto> = data?.reviews?.takeIf { it.isNotEmpty() } ?: reviews
+}
 
 // ==================== AUTH & PROFILE ====================
 

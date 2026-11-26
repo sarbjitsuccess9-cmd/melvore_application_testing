@@ -57,6 +57,7 @@ import com.example.R
 import com.example.ui.components.MelvoreErrorState
 import com.example.ui.components.MelvoreNetworkImage
 import com.example.ui.theme.LocalMelvoreColors
+import com.example.ui.theme.LocalMelvoreSurfaces
 import com.example.ui.viewmodel.MelvoreUiState
 
 @Composable
@@ -64,9 +65,11 @@ fun AboutScreen(
     uiState: MelvoreUiState,
     onNavigateShop: () -> Unit,
     onNavigateContact: () -> Unit,
+    onOpenConnectionDiagnostics: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val ext = LocalMelvoreColors.current
+    val surfaces = LocalMelvoreSurfaces.current
     val design = uiState.design
 
     LazyColumn(
@@ -90,7 +93,14 @@ fun AboutScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(Color(0x33000000), Color(0xD80A0A0D))))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    surfaces.imageOverlay.copy(alpha = 0.22f),
+                                    surfaces.imageOverlay.copy(alpha = 0.85f)
+                                )
+                            )
+                        )
                 )
                 Column(
                     modifier = Modifier
@@ -100,13 +110,13 @@ fun AboutScreen(
                     Text(
                         "OUR STUDIO",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.78f)
+                        color = surfaces.onImageOverlay.copy(alpha = 0.78f)
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "Tailored outerwear meets zero-gravity comfort.",
                         style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White
+                        color = surfaces.onImageOverlay
                     )
                 }
             }
@@ -219,24 +229,36 @@ fun AboutScreen(
         }
 
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(
-                    onClick = onNavigateContact,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                ) {
-                    Text("Contact Studio")
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onNavigateContact,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Contact Studio")
+                    }
+                    Button(
+                        onClick = onNavigateShop,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Explore Catalog")
+                    }
                 }
-                Button(
-                    onClick = onNavigateShop,
+                OutlinedButton(
+                    onClick = onOpenConnectionDiagnostics,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .height(48.dp)
+                        .testTag("about_connection_diagnostics_btn")
                 ) {
-                    Text("Explore Catalog")
+                    Text("Connection Diagnostics")
                 }
             }
         }

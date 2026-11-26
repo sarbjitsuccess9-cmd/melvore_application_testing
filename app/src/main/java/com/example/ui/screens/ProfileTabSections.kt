@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,7 +52,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.BuildConfig
 import com.example.model.Address
 import com.example.model.LocalPreferences
 import com.example.model.Order
@@ -809,62 +809,55 @@ fun ProfileSettingsSection(
     user: User,
     themeMode: String,
     preferences: LocalPreferences,
-    apiBaseUrl: String,
     isAuthBusy: Boolean,
     onSetTheme: (String) -> Unit,
     onUpdatePreferences: ((LocalPreferences) -> LocalPreferences) -> Unit,
     onRequestPasswordReset: (email: String, onSent: () -> Unit) -> Unit,
     onResetPassword: (email: String, otp: String, newPassword: String, onSuccess: () -> Unit) -> Unit,
-    onSaveApiBaseUrl: (String) -> Unit
+    onOpenHelpCenter: () -> Unit,
+    discoveryState: com.example.ui.viewmodel.DiscoveryUiState = com.example.ui.viewmodel.DiscoveryUiState(),
+    onOpenDesignAudit: () -> Unit = {},
+    onOpenConnectionDiagnostics: () -> Unit = {},
+    onRefreshDesignManifest: () -> Unit = {}
 ) {
     val ext = LocalMelvoreColors.current
+    val surfaces = com.example.ui.theme.LocalMelvoreSurfaces.current
     var resetOtpSent by remember { mutableStateOf(false) }
     var otpCode by remember { mutableStateOf("") }
     var newPw by remember { mutableStateOf("") }
-    var apiInput by remember(apiBaseUrl) { mutableStateOf(apiBaseUrl) }
+    var showLegalDialog by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        // Appearance & Currency
+        // Appearance (Light / Dark / System) & Currency
+        ProfileAppearanceCard(
+            themeMode = themeMode,
+            onSetTheme = onSetTheme
+        )
+
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, ext.borderSubtle)
+            shape = RoundedCornerShape(14.dp),
+            color = surfaces.surface,
+            border = BorderStroke(1.dp, surfaces.border)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Appearance & Currency", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("light" to "Light Mode", "dark" to "Dark Mode").forEach { (key, label) ->
-                        val selected = themeMode == key
-                        Surface(
-                            onClick = { onSetTheme(key) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                                Text(
-                                    label,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
+                Text("Currency", style = MaterialTheme.typography.titleMedium, color = surfaces.onSurface)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("₹" to "₹ INR", "$" to "$ USD").forEach { (symbol, label) ->
                         val selected = preferences.currencyOverride == symbol
                         Surface(
                             onClick = { onUpdatePreferences { it.copy(currencyOverride = symbol) } },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.weight(1f)
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (selected) surfaces.accent else surfaces.surfaceElevated,
+                            border = BorderStroke(1.dp, if (selected) surfaces.accent else surfaces.border),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
                         ) {
-                            Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            Box(modifier = Modifier.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                                 Text(
                                     label,
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                    color = if (selected) surfaces.onAccent else surfaces.onSurface
                                 )
                             }
                         }
@@ -875,7 +868,7 @@ fun ProfileSettingsSection(
 
         // Local Device Preferences
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(2.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, ext.borderSubtle)
         ) {
@@ -893,9 +886,34 @@ fun ProfileSettingsSection(
             }
         }
 
+        // Fashion Worlds Sensory & Motion Controls
+        Surface(
+            shape = RoundedCornerShape(2.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, ext.borderSubtle)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Fashion Worlds Audio & Motion", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Soundscapes start muted by default. Ambient audio and micro-SFX can be controlled independently.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ext.muted
+                )
+                SettingToggleRow("Ambient World Soundscape", preferences.ambientAudioEnabled) { v ->
+                    onUpdatePreferences { it.copy(ambientAudioEnabled = v, audioConsentAnswered = true) }
+                }
+                SettingToggleRow("Subtle UI Micro-SFX", preferences.uiSfxEnabled) { v ->
+                    onUpdatePreferences { it.copy(uiSfxEnabled = v, audioConsentAnswered = true) }
+                }
+                SettingToggleRow("Reduced Motion & FX", preferences.reducedMotion) { v ->
+                    onUpdatePreferences { it.copy(reducedMotion = v) }
+                }
+            }
+        }
+
         // Password Reset via Server Email OTP
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(2.dp),
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, ext.borderSubtle)
         ) {
@@ -914,7 +932,7 @@ fun ProfileSettingsSection(
                                 resetOtpSent = true
                             }
                         },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(2.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(if (isAuthBusy) "Sending OTP…" else "Send Reset OTP")
@@ -938,7 +956,7 @@ fun ProfileSettingsSection(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = { resetOtpSent = false },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(2.dp),
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Cancel")
@@ -952,7 +970,7 @@ fun ProfileSettingsSection(
                                     newPw = ""
                                 }
                             },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(2.dp),
                             modifier = Modifier.weight(1.4f)
                         ) {
                             Text("Confirm Reset")
@@ -962,43 +980,197 @@ fun ProfileSettingsSection(
             }
         }
 
-        // Production Hostinger PHP API Endpoint Config
+        // Concierge Help & Legal Policies
         Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, ext.borderSubtle)
+            shape = RoundedCornerShape(14.dp),
+            color = surfaces.surface,
+            border = BorderStroke(1.dp, surfaces.border)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Backend API Endpoint", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Connected to the Melvore PHP/MySQL backend (${BuildConfig.MELVORE_API_BASE}). Override only for staging or local verification.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ext.muted
-                )
-                OutlinedTextField(
-                    value = apiInput,
-                    onValueChange = { apiInput = it },
-                    label = { Text("API Base URL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text("Help & Policies", style = MaterialTheme.typography.titleMedium, color = surfaces.onSurface)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        onClick = {
-                            apiInput = BuildConfig.MELVORE_API_BASE
-                            onSaveApiBaseUrl(BuildConfig.MELVORE_API_BASE)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
+                        onClick = onOpenHelpCenter,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     ) {
-                        Text("Reset Default")
+                        Text("Help Center")
                     }
-                    Button(
-                        onClick = { onSaveApiBaseUrl(apiInput) },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
+                    OutlinedButton(
+                        onClick = { showLegalDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     ) {
-                        Text("Save Endpoint")
+                        Text("Legal & Terms")
+                    }
+                }
+            }
+        }
+
+        // About & DB Design System Diagnostics
+        ProfileAboutDesignSystemCard(
+            discoveryState = discoveryState,
+            onRefreshDesignManifest = onRefreshDesignManifest,
+            onOpenDesignAudit = onOpenDesignAudit,
+            onOpenConnectionDiagnostics = onOpenConnectionDiagnostics
+        )
+    }
+
+    if (showLegalDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLegalDialog = false },
+            confirmButton = {
+                Button(onClick = { showLegalDialog = false }, shape = RoundedCornerShape(2.dp)) {
+                    Text("Close")
+                }
+            },
+            title = { Text("Melvore Legal & Policies") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "• Returns & Exchanges: 7-day reverse pickup window on unworn items with original tags intact.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "• Payments: All prepaid transactions are processed via Razorpay encrypted checkout. COD is subject to pincode serviceability.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "• Privacy & Data: Pincode selection is stored locally without requiring GPS location permission. Photos attached to verified reviews or support requests use Android's zero-permission Photo Picker.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun ProfileAppearanceCard(
+    themeMode: String,
+    onSetTheme: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val surfaces = com.example.ui.theme.LocalMelvoreSurfaces.current
+    val normalized = themeMode.lowercase().ifBlank { "light" }
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = surfaces.surface,
+        border = BorderStroke(1.dp, surfaces.border),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Appearance", style = MaterialTheme.typography.titleMedium, color = surfaces.onSurface)
+            Text(
+                "Light is the default Melvore storefront mode. Melvore Luxe always presents its dedicated dark showroom.",
+                style = MaterialTheme.typography.bodySmall,
+                color = surfaces.onSurfaceMuted
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("light" to "Light", "dark" to "Dark", "system" to "System").forEach { (key, label) ->
+                    val selected = normalized == key
+                    Surface(
+                        onClick = { onSetTheme(key) },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selected) surfaces.accent else surfaces.surfaceElevated,
+                        border = BorderStroke(1.dp, if (selected) surfaces.accent else surfaces.border),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("appearance_mode_$key")
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selected) surfaces.onAccent else surfaces.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileAboutDesignSystemCard(
+    discoveryState: com.example.ui.viewmodel.DiscoveryUiState,
+    onRefreshDesignManifest: () -> Unit,
+    onOpenDesignAudit: () -> Unit,
+    onOpenConnectionDiagnostics: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val surfaces = com.example.ui.theme.LocalMelvoreSurfaces.current
+    val version = discoveryState.manifestVersion.ifBlank { discoveryState.activeManifest.designVersion }
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = surfaces.surface,
+        border = BorderStroke(1.dp, surfaces.border),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("profile_about_design_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("About & Design System", style = MaterialTheme.typography.titleMedium, color = surfaces.onSurface)
+            Text(
+                text = "Source: ${discoveryState.manifestSource.wireName.uppercase()} · Version: $version · ETag: ${discoveryState.manifestEtag.ifBlank { "none" }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = surfaces.onSurfaceMuted
+            )
+            if (discoveryState.manifestFallbackReason != null) {
+                Text(
+                    text = "Fallback: ${discoveryState.manifestFallbackReason}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = surfaces.sale
+                )
+            }
+            if (discoveryState.manifestWarnings.isNotEmpty()) {
+                Text(
+                    text = "Warnings: ${discoveryState.manifestWarnings.size} section fallback(s) active",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = surfaces.sale
+                )
+            }
+            Button(
+                onClick = onOpenConnectionDiagnostics,
+                shape = RoundedCornerShape(10.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = surfaces.accent,
+                    contentColor = surfaces.onAccent
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("profile_open_connection_diagnostics_btn")
+            ) {
+                Text("Connection Diagnostics")
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRefreshDesignManifest,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("profile_refresh_design_btn")
+                ) {
+                    Text("Sync Design")
+                }
+                if (com.example.BuildConfig.DEBUG) {
+                    OutlinedButton(
+                        onClick = onOpenDesignAudit,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("profile_open_design_audit_btn")
+                    ) {
+                        Text("Design Audit")
                     }
                 }
             }
